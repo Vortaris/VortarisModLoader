@@ -3,6 +3,8 @@
 #include <algorithm>
 
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/object.hpp>
+#include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/memory.hpp>
 #include <godot_cpp/core/print_string.hpp>
@@ -20,8 +22,17 @@ VMLModLoader::VMLModLoader() {
 	scan_base_layer();
 	scan_mods();
 	initialized_ = true;
+
+	// Unified load: honor vortarismodloader/database_mode ("data"/"all"/"off").
+	database_mode_ = mode_from_string(godot::Variant(
+			ProjectSettings::get_singleton()->get_setting("vortarismodloader/database_mode", "data")));
+	if (database_mode_ != DatabaseMode::OFF) {
+		preload_database();
+	}
+
 	print_line(String("VML: VortarisModLoader initialized (") + String::num_int64(registry_.provider_count()) +
-			String(" ids, ") + String::num_int64((int64_t)mods_.size()) + String(" mods found)"));
+			String(" ids, ") + String::num_int64((int64_t)mods_.size()) + String(" mods, db=") +
+			mode_to_string(database_mode_) + String(")"));
 }
 
 VMLModLoader::~VMLModLoader() {
@@ -146,16 +157,29 @@ Variant VMLModLoader::get_data(const String &p_id) const {
 		ERR_PRINT(String("VML: invalid id '") + p_id + String("'"));
 		return Variant();
 	}
+	// Fast path: already resident in the unified database.
+	if (database_mode_ != DatabaseMode::OFF) {
+		Variant cached;
+		if (database_.get(rid, cached)) {
+			return cached;
+		}
+	}
 	const vortarismodloader::ProviderEntry *e = registry_.lookup(rid);
 	if (e == nullptr) {
 		ERR_PRINT(String("VML: unknown id '") + p_id + String("'"));
 		return Variant();
 	}
 	const String ext = e->physical_path.get_extension().to_lower();
+	Variant val;
 	if (ext == "json" || ext == "csv") {
-		return vortarismodloader::LoaderBackend::load_data(e->physical_path);
+		val = vortarismodloader::LoaderBackend::load_data(e->physical_path);
+	} else {
+		val = vortarismodloader::LoaderBackend::load_resource(e->physical_path);
 	}
-	return vortarismodloader::LoaderBackend::load_resource(e->physical_path);
+	if (database_mode_ != DatabaseMode::OFF) {
+		database_.set(rid, val, e->physical_path, e->mod_id);
+	}
+	return val;
 }
 
 Ref<Resource> VMLModLoader::get_resource(const String &p_id) const {
@@ -222,6 +246,116 @@ PackedStringArray VMLModLoader::list_namespaces() const {
 	return out;
 }
 
+void VMLModLoader::preload_database() {
+	database_.clear();
+	if (database_mode_ == DatabaseMode::OFF) {
+		return;
+	}
+	for (const vortarismodloader::ResourceId &id : registry_.all_ids()) {
+		const vortarismodloader::ProviderEntry *e = registry_.lookup(id);
+		if (e == nullptr) {
+			continue;
+		}
+		const String ext = e->physical_path.get_extension().to_lower();
+		const bool is_data = is_data_extension(ext);
+		if (database_mode_ == DatabaseMode::DATA && !is_data) {
+			continue;
+		}
+		Variant val;
+		if (is_data) {
+			val = vortarismodloader::LoaderBackend::load_data(e->physical_path);
+		} else {
+			val = vortarismodloader::LoaderBackend::load_resource(e->physical_path);
+		}
+		if (val.get_type() != Variant::NIL) {
+			database_.set(id, val, e->physical_path, e->mod_id);
+		}
+	}
+	emit_signal("database_loaded");
+}
+
+void VMLModLoader::reload_database() {
+	preload_database();
+}
+
+Dictionary VMLModLoader::get_all(const String &p_prefix) const {
+	Dictionary out;
+	for (const vortarismodloader::ResourceId &id : database_.loaded_ids()) {
+		const String canonical = id.canonical();
+		if (!p_prefix.is_empty() && !canonical.begins_with(p_prefix)) {
+			continue;
+		}
+		Variant v;
+		if (database_.get(id, v)) {
+			out[canonical] = v;
+		}
+	}
+	return out;
+}
+
+bool VMLModLoader::set_data(const String &p_id, const Variant &p_value) {
+	vortarismodloader::ResourceId rid;
+	if (!vortarismodloader::ResourceId::parse(p_id, rid)) {
+		ERR_PRINT(String("VML: invalid id '") + p_id + String("'"));
+		return false;
+	}
+	database_.set(rid, p_value, String(), "__runtime__");
+	emit_entry_changed(rid);
+	return true;
+}
+
+bool VMLModLoader::delete_data(const String &p_id) {
+	vortarismodloader::ResourceId rid;
+	if (!vortarismodloader::ResourceId::parse(p_id, rid) || !database_.has(rid)) {
+		return false;
+	}
+	database_.erase(rid);
+	emit_entry_changed(rid);
+	return true;
+}
+
+String VMLModLoader::get_database_mode() const {
+	return mode_to_string(database_mode_);
+}
+
+bool VMLModLoader::set_database_mode(const String &p_mode) {
+	const DatabaseMode m = mode_from_string(p_mode);
+	if (m != database_mode_) {
+		database_mode_ = m;
+		ProjectSettings::get_singleton()->set_setting("vortarismodloader/database_mode", mode_to_string(m));
+		reload_database();
+	}
+	return true;
+}
+
+VMLModLoader::DatabaseMode VMLModLoader::mode_from_string(const String &p_mode) const {
+	if (p_mode == "all") {
+		return DatabaseMode::ALL;
+	}
+	if (p_mode == "off") {
+		return DatabaseMode::OFF;
+	}
+	return DatabaseMode::DATA;
+}
+
+String VMLModLoader::mode_to_string(DatabaseMode p_mode) const {
+	if (p_mode == DatabaseMode::ALL) {
+		return "all";
+	}
+	if (p_mode == DatabaseMode::OFF) {
+		return "off";
+	}
+	return "data";
+}
+
+bool VMLModLoader::is_data_extension(const String &p_ext) const {
+	return p_ext == "json" || p_ext == "csv" || p_ext == "tres" || p_ext == "res";
+}
+
+void VMLModLoader::emit_entry_changed(const vortarismodloader::ResourceId &p_id) {
+	emit_signal("database_entry_changed", p_id.canonical());
+}
+
 PackedStringArray VMLModLoader::get_mod_ids() const {
 	PackedStringArray out;
 	for (const ModRecord &rec : mods_) {
@@ -264,6 +398,17 @@ void VMLModLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_mod_ids"), &VMLModLoader::get_mod_ids);
 	ClassDB::bind_method(D_METHOD("get_load_order"), &VMLModLoader::get_load_order);
 	ClassDB::bind_method(D_METHOD("get_mod_errors", "mod_id"), &VMLModLoader::get_mod_errors);
+
+	ClassDB::bind_method(D_METHOD("preload_database"), &VMLModLoader::preload_database);
+	ClassDB::bind_method(D_METHOD("reload_database"), &VMLModLoader::reload_database);
+	ClassDB::bind_method(D_METHOD("get_all", "prefix"), &VMLModLoader::get_all, DEFVAL(""));
+	ClassDB::bind_method(D_METHOD("set_data", "id", "value"), &VMLModLoader::set_data);
+	ClassDB::bind_method(D_METHOD("delete_data", "id"), &VMLModLoader::delete_data);
+	ClassDB::bind_method(D_METHOD("get_database_mode"), &VMLModLoader::get_database_mode);
+	ClassDB::bind_method(D_METHOD("set_database_mode", "mode"), &VMLModLoader::set_database_mode);
+
+	ADD_SIGNAL(MethodInfo("database_loaded"));
+	ADD_SIGNAL(MethodInfo("database_entry_changed", PropertyInfo(Variant::STRING, "id")));
 }
 
 } // namespace godot

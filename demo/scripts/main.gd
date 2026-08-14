@@ -11,12 +11,18 @@ func _ready() -> void:
 		return
 
 	print("=== VortarisModLoader Demo OK ===")
-
-	# Routing layer demo: resolve + data by namespaced id.
-	var peasant: Dictionary = VML.get_data("game:units/peasant")
-	print("peasant  -> ", JSON.stringify(peasant))
-	print("knight   -> ", VML.resolve("game:units/knight"))
+	print("db mode  -> ", VML.get_database_mode())
 	print("ns       -> ", VML.list_namespaces())
+
+	# Unified database: everything was preloaded at startup.
+	var units: Dictionary = VML.get_all("game:units/")
+	for id in units:
+		var u: Dictionary = units[id]
+		print("unit ", id, " -> ", u.get("name"), " (atk ", u.get("attack"), ")")
+
+	# Mutable database: rewrite a live entry in place.
+	VML.set_data("game:units/peasant", {"name": "Peasant MK2", "health": 60})
+	print("modified -> ", JSON.stringify(VML.get_data("game:units/peasant")))
 
 	if DisplayServer.get_name() == "headless":
 		get_tree().quit(0)

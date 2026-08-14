@@ -1,7 +1,15 @@
 extends SceneTree
-## Headless regression suite (M2–M3: routing layer + override arbitration). Run:
-##   godot --headless --path demo --script res://scripts/regression_test.gd
+## Headless regression suite (M2–M4: routing layer + override + content database).
+## Run: godot --headless --path demo --script res://scripts/regression_test.gd
 ## Exit code 0 = all tests pass.
+##
+## NOTE: signals from the VML engine singleton must be connected to named
+## methods, not lambdas — a lambda held across engine shutdown crashes at exit.
+
+var _fired_ok := false
+
+func _on_db_entry_changed(_id: String) -> void:
+	_fired_ok = true
 
 func _initialize() -> void:
 	var failed := false
@@ -88,6 +96,49 @@ func _initialize() -> void:
 	var by_ns = VML.list_ids()
 	if not VMLTestUtil.expect(by_ns.has("mymod") and by_ns["mymod"].has("units/archer"),
 			"T16 list_ids grouped by namespace includes mod content"):
+		failed = true
+
+	# --- M4: unified content database ---
+	if not VMLTestUtil.expect_eq(VML.get_database_mode(), "data", "T19 database_mode default data"):
+		failed = true
+	# Data was preloaded into memory at startup: get_all sees it without loading.
+	var all_units = VML.get_all("game:units/")
+	if not VMLTestUtil.expect(all_units.size() == 2, "T19 get_all prefetched data resident"):
+		failed = true
+
+	# set_data overwrites live, get_data reflects it, and the signal fires.
+	_fired_ok = false
+	VML.database_entry_changed.connect(_on_db_entry_changed)
+	if not VMLTestUtil.expect(VML.set_data("game:units/peasant", {"name": "Modded Peasant"}),
+			"T20 set_data returns true"):
+		failed = true
+	var modified = VML.get_data("game:units/peasant")
+	if not VMLTestUtil.expect_eq(modified.get("name"), "Modded Peasant",
+			"T20 get_data reflects set_data"):
+		failed = true
+	if not VMLTestUtil.expect(_fired_ok, "T20 database_entry_changed emitted"):
+		failed = true
+	VML.database_entry_changed.disconnect(_on_db_entry_changed)
+
+	# delete_data removes the override; get_data falls back to the file.
+	if not VMLTestUtil.expect(VML.delete_data("game:units/peasant"), "T21 delete_data"):
+		failed = true
+	var restored = VML.get_data("game:units/peasant")
+	if not VMLTestUtil.expect_eq(restored.get("name"), "Peasant", "T21 get_data falls back to file"):
+		failed = true
+
+	# Prefix query over the resident database.
+	var units = VML.get_all("game:units/")
+	if not VMLTestUtil.expect(units.has("game:units/peasant") and units.has("game:units/knight"),
+			"T22 get_all prefix filter"):
+		failed = true
+
+	# Mode switching round-trips and triggers a reload.
+	if not VMLTestUtil.expect(VML.set_database_mode("off") and VML.get_database_mode() == "off",
+			"T23 set_database_mode off"):
+		failed = true
+	if not VMLTestUtil.expect(VML.set_database_mode("data") and VML.get_database_mode() == "data",
+			"T23 set_database_mode back to data"):
 		failed = true
 
 	quit(1 if failed else 0)

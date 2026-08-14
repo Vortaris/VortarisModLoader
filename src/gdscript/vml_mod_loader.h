@@ -10,6 +10,7 @@
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
 
+#include "../core/content_database.h"
 #include "../core/manifest.h"
 #include "../core/overlay_stack.h"
 #include "../core/registry_index.h"
@@ -21,9 +22,9 @@ namespace godot {
 // exists before any autoload and before the main scene. This is the only global
 // entry point mods and games talk to.
 //
-// M3 state: discovers mods under res://mods-unpacked/, parses+validates their
-// manifests, resolves a dependency-sorted load order and stacks every valid mod's
-// assets/data above the base layer with override arbitration.
+// M4 state: adds the unified ContentDatabase — data ids can be preloaded into an
+// in-memory repository (get_data becomes an O(1) hash hit) and the repository is
+// mutable via set_data/delete_data so live content can be rewritten in place.
 class VMLModLoader : public Node {
 	GDCLASS(VMLModLoader, Node)
 
@@ -48,18 +49,36 @@ public:
 	Dictionary list_ids(const String &p_prefix = "") const;
 	PackedStringArray list_namespaces() const;
 
+	// --- content database (unified load) -------------------------------
+	/// "data" (default) preloads data files; "all" preloads every id; "off" = lazy.
+	void preload_database();
+	/// Clear the repository and re-preload per the current mode.
+	void reload_database();
+	/// { canonical_id: value } for every loaded entry (optionally prefixed).
+	Dictionary get_all(const String &p_prefix = "") const;
+	bool set_data(const String &p_id, const Variant &p_value);
+	bool delete_data(const String &p_id);
+	String get_database_mode() const;
+	bool set_database_mode(const String &p_mode);
+
 	// --- mod management (M3: discovery + ordering) ---------------------
-	/// All discovered mod ids (valid or not), in deterministic order.
 	PackedStringArray get_mod_ids() const;
-	/// Dependency-sorted load order of valid mods (base excluded).
 	PackedStringArray get_load_order() const;
-	/// Human-readable errors for one mod (missing deps, cycle, bad manifest).
 	PackedStringArray get_mod_errors(const String &p_mod_id) const;
+
+	// signals
+	static void _static_bind_signals();
 
 protected:
 	static void _bind_methods();
 
 private:
+	enum class DatabaseMode {
+		OFF,
+		DATA,
+		ALL,
+	};
+
 	struct ModRecord {
 		vortarismodloader::ModManifest manifest;
 		String root;
@@ -69,9 +88,15 @@ private:
 
 	void scan_base_layer();
 	void scan_mods();
+	DatabaseMode mode_from_string(const String &p_mode) const;
+	String mode_to_string(DatabaseMode p_mode) const;
+	bool is_data_extension(const String &p_ext) const;
+	void emit_entry_changed(const vortarismodloader::ResourceId &p_id);
 
 	vortarismodloader::RegistryIndex registry_;
 	vortarismodloader::OverlayStack overlays_;
+	mutable vortarismodloader::ContentDatabase database_;
+	mutable DatabaseMode database_mode_ = DatabaseMode::DATA;
 	std::unordered_map<vortarismodloader::ResourceIdKey, String, vortarismodloader::ResourceIdKeyHash>
 			explicit_paths_;
 	std::vector<ModRecord> mods_;
