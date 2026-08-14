@@ -1,0 +1,8 @@
+{
+	"id": "game:units/peasant",
+	"name": "Peasant",
+	"health": 50,
+	"attack": 4,
+	"speed": 5,
+	"cost": { "game:items/wood": 10 }
+}
