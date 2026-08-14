@@ -183,6 +183,30 @@ func _initialize() -> void:
 			"T31 get_mod_path"):
 		failed = true
 
+	# --- id metadata & operations ---
+	var info: Dictionary = VML.get_id_info("game:units.peasant")
+	if not VMLTestUtil.expect(info.get("valid") and info.get("resolved"), "T33 get_id_info resolved"):
+		failed = true
+	if not VMLTestUtil.expect_eq(info.get("provider_mod"), "base", "T33 id provider is base"):
+		failed = true
+	if not VMLTestUtil.expect_eq(VML.get_id_data_type("game:units.peasant"), "data", "T33 id data type"):
+		failed = true
+	if not VMLTestUtil.expect(VML.set_id_type("game:units.peasant", "unit"), "T33 set_id_type"):
+		failed = true
+	if not VMLTestUtil.expect_eq(VML.get_id_type("game:units.peasant"), "unit", "T33 get_id_type"):
+		failed = true
+	if not VMLTestUtil.expect(VML.list_ids_by_type("unit").has("game:units.peasant"),
+			"T33 list_ids_by_type"):
+		failed = true
+	if not VMLTestUtil.expect(VML.reserve("mygame:future.item"), "T33 reserve id"):
+		failed = true
+	if not VMLTestUtil.expect(VML.has("mygame:future.item"), "T33 reserved id is visible"):
+		failed = true
+	if not VMLTestUtil.expect(VML.unreserve("mygame:future.item"), "T33 unreserve id"):
+		failed = true
+	if not VMLTestUtil.expect(not VML.has("mygame:future.item"), "T33 unreserved id gone"):
+		failed = true
+
 	# --- M5: declarative hooks + mod_main entry ---
 	VML.finish_startup() # instantiates sample_mod's mod_main, which registers hooks
 
@@ -353,5 +377,23 @@ func _initialize() -> void:
 		failed = true
 	VML.preload_progress.disconnect(_on_preload_progress)
 	VML.database_loaded.disconnect(_on_database_loaded_async)
+
+	# --- T34: hot reloader (H3 fix) is attached to the scene tree and auto-applies ---
+	VML.start_hot_reload(0.05)
+	if not VMLTestUtil.expect(get_root().has_node("VMLHotReloader"),
+			"T34 hot reloader attached to scene root"):
+		failed = true
+	var hr_path := "res://mods-unpacked/sample_mod/data/mymod/units/archer.json"
+	var saved34: String = FileAccess.get_file_as_string(hr_path)
+	FileAccess.open(hr_path, FileAccess.WRITE).store_string(
+			'{"id":"mymod:units.archer","name":"Archer Auto","health":77,"attack":8,"speed":6}')
+	await create_timer(0.3).timeout
+	var auto: Dictionary = VML.get_data("mymod:units.archer")
+	if not VMLTestUtil.expect_eq(auto.get("name"), "Archer Auto",
+			"T34 auto hot reload applies file change"):
+		failed = true
+	FileAccess.open(hr_path, FileAccess.WRITE).store_string(saved34)
+	VML.reload_resources([hr_path])
+	await create_timer(0.2).timeout
 
 	quit(1 if failed else 0)

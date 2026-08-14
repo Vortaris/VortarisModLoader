@@ -141,26 +141,33 @@ void DependencyGraph::compute_order(const std::vector<ModManifest> &p_manifests,
 		if (std::find(valid.begin(), valid.end(), m.id) == valid.end()) {
 			continue;
 		}
-		auto &out_edges = edges[m.id];
 		for (const godot::String &dep : m.deps) {
 			godot::String dep_id, op, want;
 			parse_dependency(dep, dep_id, op, want);
 			if (by_id.find(dep_id) != by_id.end() && std::find(valid.begin(), valid.end(), dep_id) != valid.end()) {
-				// dep must load before m -> edge dep -> m.
-				if (std::find(out_edges.begin(), out_edges.end(), dep_id) == out_edges.end()) {
-					out_edges.push_back(dep_id);
+				// dep must load BEFORE m -> edge dep -> m (m depends on dep).
+				auto &succ = edges[dep_id];
+				if (std::find(succ.begin(), succ.end(), m.id) == succ.end()) {
+					succ.push_back(m.id);
 				}
 			}
 		}
 		for (const godot::String &lb : m.load_before) {
-			// m must load before lb -> edge lb -> m (lb is a dep).
+			// m must load BEFORE lb -> edge m -> lb.
 			if (by_id.find(lb) != by_id.end() && std::find(valid.begin(), valid.end(), lb) != valid.end()) {
-				edges[lb].push_back(m.id);
+				auto &succ = edges[m.id];
+				if (std::find(succ.begin(), succ.end(), lb) == succ.end()) {
+					succ.push_back(lb);
+				}
 			}
 		}
 		for (const godot::String &la : m.load_after) {
+			// m must load AFTER la -> edge la -> m.
 			if (by_id.find(la) != by_id.end() && std::find(valid.begin(), valid.end(), la) != valid.end()) {
-				edges[m.id].push_back(la);
+				auto &succ = edges[la];
+				if (std::find(succ.begin(), succ.end(), m.id) == succ.end()) {
+					succ.push_back(m.id);
+				}
 			}
 		}
 	}

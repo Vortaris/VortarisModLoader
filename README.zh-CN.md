@@ -13,10 +13,11 @@
 - **声明式钩子**：hook 点即 id，三种语义——`invoke_hook`（链式改参数/返回值）、`emit_hook`（广播）、`check_hook`（判定拦截）。无正则源码重写。
 - **覆盖仲裁**：后加载的 mod 覆盖先加载者（优先级 + 显式注册 + mod id 兜底，确定性）。
 - **运行时生命周期**：启动早期扫描（早于 autoload）、运行时动态 enable/disable/load/unload 整个 mod、zip 事务性安装。
-- **开发热重载**：mtime+size 轮询，改 mod 文件即时生效（数据/资源刷新 + 信号通知）。
+- **开发热重载**：mtime+size 轮询，改 mod 文件即时生效（数据/资源刷新 + 信号通知）；`vortarismodloader/verbose` 开启详细加载日志。
 - **原生 `vml://` 加载**：`load("vml://ns:path")`，C++ 注册的 ResourceFormatLoader 在导出版也可用。
 - **易上手 API**：`get`/`load`/`exists`/`get_mod_path` 等便捷别名，几十秒上手。
-- **EditorPlugin**：默认关闭，Editor > Tools > "VML Mods" 打开 dock（Mods/IDs/Hooks 三页）+ 一键创建 mod 向导。
+- **id 元数据与预留**：`get_id_info`（完整状态）、`get_id_data_type`、`set_id_type`/`list_ids_by_type`（按类型过滤）、`reserve`/`unreserve`（预留命名）。
+- **EditorPlugin**：默认关闭，Editor > Tools > "VML Mods" 打开 dock（Mods/IDs/Hooks 三页，列宽可拖）+ 一键创建 mod 向导；每个操作在控制台打印反馈日志。
 - **多平台**：Windows / Linux / macOS，GitHub Actions 三平台构建与 tag 发布。
 
 ## 快速开始

@@ -11,6 +11,7 @@ var _id_tree: Tree
 var _hook_tree: Tree
 var _status: Label
 var _wizard: ConfirmationDialog
+var _last_mod_id := ""
 
 
 func _ready() -> void:
@@ -25,27 +26,21 @@ func _ready() -> void:
 	_add_btn(hbox, "Install Zip", _on_install_zip)
 	_add_btn(hbox, "Create Mod", _on_create_mod)
 	_add_btn(hbox, "Rescan", _on_rescan)
-	_add_btn(hbox, "Reload", _on_reload)
+	_add_btn(hbox, "Reload DB", _on_reload)
 	_add_btn(hbox, "Toggle", _on_toggle_selected)
 
 	var tabs := TabContainer.new()
 	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_child(tabs)
 
-	# --- Mods tab ---
 	_mod_tree = _make_tree(["Mod", "Version", "State"])
 	tabs.add_child(_tab("Mods", _mod_tree))
-
-	# --- IDs tab ---
 	_id_tree = _make_tree(["Namespace", "Path", "Source"])
 	tabs.add_child(_tab("IDs", _id_tree))
-
-	# --- Hooks tab ---
 	_hook_tree = _make_tree(["Hook", "Type", "Detail"])
 	tabs.add_child(_tab("Hooks", _hook_tree))
 
 	_status = Label.new()
-	_status.text = ""
 	vbox.add_child(_status)
 
 	_wizard = ModWizard.new()
@@ -61,6 +56,9 @@ func _make_tree(columns: Array) -> Tree:
 	t.set_column_titles_visible(true)
 	for i in columns.size():
 		t.set_column_title(i, columns[i])
+		# Keep column widths user-adjustable (draggable separators) and set a sane default.
+		t.set_column_expand(i, i == 0)
+		t.set_column_custom_minimum_width(i, 90)
 	return t
 
 
@@ -83,16 +81,20 @@ func refresh() -> void:
 	_refresh_mods()
 	_refresh_ids()
 	_refresh_hooks()
-	_status.text = "%d mods, %d ids, db=%s" % [VML.get_mod_ids().size(), VML.list_ids().size(), VML.get_database_mode()]
+	var total := 0
+	for ns in VML.list_ids():
+		total += VML.list_ids()[ns].size()
+	_status.text = "%d mods, %d ids, db=%s" % [VML.get_mod_ids().size(), total, VML.get_database_mode()]
 
 
 func _refresh_mods() -> void:
 	_mod_tree.clear()
 	var root := _mod_tree.create_item()
+	var to_select: TreeItem = null
 	for mod_id in VML.get_mod_ids():
 		var item := _mod_tree.create_item(root)
 		item.set_text(0, mod_id)
-		item.set_text(1, "1.0.0")
+		item.set_text(1, VML.get_mod_version(mod_id))
 		var state := "enabled" if VML.is_mod_enabled(mod_id) else "disabled"
 		if VML.is_mod_loaded(mod_id):
 			state += " +loaded"
@@ -101,14 +103,18 @@ func _refresh_mods() -> void:
 			state += " (!)"
 		item.set_text(2, state)
 		item.set_meta("mod_id", mod_id)
+		if mod_id == _last_mod_id:
+			to_select = item
+	if to_select != null:
+		_mod_tree.set_selected(to_select, 0)
+		_mod_tree.scroll_to_item(to_select)
 
 
 func _refresh_ids() -> void:
 	_id_tree.clear()
 	var root := _id_tree.create_item()
-	var ids := VML.list_ids()
-	for ns in ids:
-		for path in ids[ns]:
+	for ns in VML.list_ids():
+		for path in VML.list_ids()[ns]:
 			var item := _id_tree.create_item(root)
 			item.set_text(0, ns)
 			item.set_text(1, path)
@@ -134,7 +140,7 @@ func _refresh_hooks() -> void:
 
 func _selected_mod_id() -> String:
 	var item := _mod_tree.get_selected()
-	return item.get_meta("mod_id", "") if item else ""
+	return item.get_meta("mod_id", "") if item else _last_mod_id
 
 
 func _on_install_zip() -> void:
@@ -154,28 +160,34 @@ func _on_zip_selected(path: String) -> void:
 		return
 	var err := VML.install_mod_from_zip(path)
 	_status.text = "install: %s" % err
+	print("VML: install_mod_from_zip(%s) -> %s" % [path, err])
 	refresh()
 
 
 func _on_create_mod() -> void:
-	_wizard.popup_centered_ratio(0.4)
+	_wizard.popup_centered(Vector2(380, 260))
 
 
-func _on_mod_created(_mod_id: String) -> void:
+func _on_mod_created(mod_id: String) -> void:
+	print("VML: mod created: ", mod_id)
 	if Engine.has_singleton("VML"):
 		VML.rescan()
 	refresh()
 
 
 func _on_rescan() -> void:
-	if Engine.has_singleton("VML"):
-		VML.rescan()
+	if not Engine.has_singleton("VML"):
+		return
+	VML.rescan()
+	print("VML: rescan done (", VML.get_mod_ids().size(), " mods)")
 	refresh()
 
 
 func _on_reload() -> void:
-	if Engine.has_singleton("VML"):
-		VML.reload_database()
+	if not Engine.has_singleton("VML"):
+		return
+	VML.reload_database()
+	print("VML: database reloaded (mode ", VML.get_database_mode(), ")")
 	refresh()
 
 
@@ -183,8 +195,11 @@ func _on_toggle_selected() -> void:
 	var id := _selected_mod_id()
 	if id.is_empty() or not Engine.has_singleton("VML"):
 		return
+	_last_mod_id = id
 	if VML.is_mod_enabled(id):
-		VML.disable_mod(id)
+		var ok := VML.disable_mod(id)
+		print("VML: disable_mod(", id, ") -> ", ok)
 	else:
-		VML.enable_mod(id)
+		var ok := VML.enable_mod(id)
+		print("VML: enable_mod(", id, ") -> ", ok)
 	refresh()

@@ -1,5 +1,7 @@
 #include "discovery.h"
 
+#include <algorithm>
+
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 
@@ -23,6 +25,9 @@ void DiscoveryScanner::scan_mod_dirs(const godot::String &p_mods_root, std::vect
 		}
 	}
 	dir->list_dir_end();
+	// Deterministic order: filesystem enumeration order is not guaranteed.
+	std::sort(p_out.begin(), p_out.end(),
+			[](const DiscoveredMod &a, const DiscoveredMod &b) { return a.root < b.root; });
 }
 
 } // namespace vortarismodloader

@@ -87,6 +87,13 @@ Two layers, mirroring VortarisCSV/VortarisECS: pure C++ core (`src/core/`,
   `list_ids`/`get_all` prefix filters use the dotted form (`"game:units."`).
 - **Convenience sugar exists**: `get`/`load`/`exists` are thin aliases of
   `get_data`/`get_resource`/`has`; `get_mod_path` returns a mod's root dir.
+- **Id metadata**: `get_id_info` reports {valid, resolved, path, provider_mod,
+  priority, explicit, preloaded, reserved, type, data_type}; `set_id_type`/
+  `get_id_type`/`list_ids_by_type` filter by a logical type tag; `reserve`/
+  `unreserve` declare an id without a provider (has() then reports true).
+- **Logging**: mod actions always `print_line` ("VML: mod 'x' enabled/disabled/
+  installed/uninstalled"); extra detail is gated behind
+  `vortarismodloader/verbose` (read once per call via `log_verbose`).
 - **Hooks are declarative + namespaced, never source rewriting.** The game calls
   `invoke_hook/emit_hook/check_hook` at instrumented points; mods register
   `Callable`s with `add_hook`. Handler signatures: invoke `func(current, ...args)`,

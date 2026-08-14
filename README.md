@@ -1,5 +1,7 @@
 # VortarisModLoader
 
+**English** | [简体中文](README.zh-CN.md)
+
 A data-driven mod loader for Godot 4.7, written in C++ as a GDExtension.
 Open source, no runtime dependencies.
 
@@ -25,11 +27,15 @@ all data) and traditional games alike (texture/model/scene overrides).
   (priority + explicit flag + mod id).
 - **Runtime lifecycle**: early scan before autoloads, dynamic enable/disable/
   load/unload of whole mods, transactional zip install.
-- **Dev hot reload**: mtime polling — edit a mod file and it applies live.
+- **Dev hot reload**: mtime polling — edit a mod file and it applies live;
+  `vortarismodloader/verbose` enables detailed load logging.
 - **Native `vml://` loading**: `load("vml://ns:path")` works in exported builds.
 - **Beginner-friendly API**: `get`/`load`/`exists`/`get_mod_path` sugar.
+- **Id metadata & reservation**: `get_id_info` (full status), `get_id_data_type`,
+  `set_id_type`/`list_ids_by_type` (filter by type), `reserve`/`unreserve`.
 - **EditorPlugin**: off by default — open via Editor > Tools > "VML Mods"
-  (Mods/IDs/Hooks tabs) + one-click mod skeleton wizard.
+  (Mods/IDs/Hooks tabs, resizable columns) + one-click mod skeleton wizard;
+  every action logs feedback to the console.
 - **Cross-platform**: Windows / Linux / macOS, GitHub Actions builds + tag release.
 
 ## Quick start

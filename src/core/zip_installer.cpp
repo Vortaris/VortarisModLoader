@@ -76,6 +76,12 @@ Error ZipInstaller::install(const godot::String &p_zip_path, const godot::String
 			continue;
 		}
 		const godot::String rel = prefix.is_empty() ? f : f.substr(prefix.length());
+		// Path-traversal guard: never let an entry escape the extraction root.
+		if (rel.find("..") != -1 || rel.begins_with("/") || rel.begins_with("\\") ||
+				rel.find(":") != -1) {
+			extract_ok = false;
+			break;
+		}
 		const godot::String out_path = tmp + godot::String("/") + rel;
 		godot::DirAccess::make_dir_recursive_absolute(out_path.get_base_dir());
 		godot::Ref<godot::FileAccess> fout = godot::FileAccess::open(out_path, godot::FileAccess::WRITE);

@@ -31,10 +31,12 @@ bool HookRegistry::remove(const ResourceId &p_hook_id, const godot::Callable &p_
 	handlers.erase(std::remove_if(handlers.begin(), handlers.end(),
 							[&](const HookHandler &h) { return h.callable == p_callable; }),
 			handlers.end());
+	// Capture the result BEFORE the entry may be destroyed by map_.erase().
+	const bool removed = handlers.size() != before;
 	if (handlers.empty()) {
 		map_.erase(it);
 	}
-	return handlers.size() != before;
+	return removed;
 }
 
 void HookRegistry::remove_mod(const godot::String &p_mod_id) {

@@ -1,283 +1,454 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<class name="VMLModLoader" inherits="Node" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+<class name="VMLModLoader" inherits="Node" api_type="extension" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
 	<brief_description>
-		VortarisModLoader engine singleton (`VML`). Namespaced id registry, unified content database, declarative hooks, and runtime mod lifecycle.
+		VortarisModLoader engine singleton (`VML`): namespaced id registry, unified content database, declarative hooks, runtime mod lifecycle.
+
+		VortarisModLoader 引擎单例（`VML`）：命名空间 id 注册表、统一内容数据库、声明式钩子、运行时 mod 生命周期。
 	</brief_description>
 	<description>
-		Registered at engine start (SCENE level) before any autoload, exposed to scripts as the `VML` singleton.
+		Registered at engine start (SCENE level) before any autoload; exposed to scripts as the `VML` singleton.
 
-		Content model: every piece of moddable content is addressed by a namespaced id `namespace:path` (Minecraft ResourceLocation style, e.g. `game:units.knight`). Mods stack above the base layer; a later-loaded mod wins when two providers claim the same id (override arbitration by priority, then explicit flag, then mod id).
+		[b]Content model[/b] — every piece of moddable content is addressed by a dotted, namespaced id `namespace.path` (e.g. `game:units.knight`). Mods stack above the base layer; a later-loaded mod wins when two providers claim the same id. Override arbitration is deterministic: priority, then explicit flag, then mod id.
 
-		Three layers:
-		- Routing: id → winning physical file ([method has], [method resolve], [method get_data], [method get_resource], [method instantiate]).
-		- Database: an in-memory repository that can preload every data id for O(1) lookups ([method preload_database], [method get_all], [method set_data], [method delete_data]).
-		- Hooks: declarative event points, each a namespaced id ([method add_hook], [method invoke_hook], [method emit_hook], [method check_hook]).
+		[b]Three layers:[/b]
+		- [b]Routing[/b]: id → winning physical file ([method has], [method resolve], [method get_data], [method get_resource], [method instantiate]).
+		- [b]Database[/b]: an in-memory repository that can preload every data id for O(1) lookups ([method preload_database], [method get_all], [method set_data], [method delete_data]).
+		- [b]Hooks[/b]: declarative event points, each a namespaced id ([method add_hook], [method invoke_hook], [method emit_hook], [method check_hook]).
 
-		Mod lifecycle: mods are discovered under `res://mods-unpacked/` and `user://vml/mods/` (zip-installed). [method enable_mod]/[method disable_mod] toggle them at runtime; [method install_mod_from_zip] extracts a zip mod transactionally.
+		Mods are discovered under `res://mods-unpacked/` and `user://vml/mods/` (zip-installed). Enable/disable/load/unload at runtime with [method enable_mod]/[method disable_mod]; [method install_mod_from_zip] extracts a zip mod transactionally.
+
+		在引擎启动时（SCENE 层级，早于任何 autoload）注册，脚本中以 `VML` 单例访问。
+
+		[b]内容模型[/b] —— 每个可 mod 内容用点分隔的命名空间 id 寻址（如 `game:units.knight`）。mod 堆叠在基础层之上；多个提供者声明同一 id 时，后加载的 mod 胜出。覆盖仲裁是确定性的：优先级 → 显式标志 → mod id。
+
+		[b]三层架构：[/b]
+		- [b]路由[/b]：id → 胜出的物理文件（[method has]、[method resolve]、[method get_data]、[method get_resource]、[method instantiate]）。
+		- [b]数据库[/b]：内存仓库，可把全部数据 id 预载以实现 O(1) 查询（[method preload_database]、[method get_all]、[method set_data]、[method delete_data]）。
+		- [b]钩子[/b]：声明式事件点，每个都是命名空间 id（[method add_hook]、[method invoke_hook]、[method emit_hook]、[method check_hook]）。
+
+		mod 在 `res://mods-unpacked/` 与 `user://vml/mods/`（zip 安装）下被发现。运行时用 [method enable_mod]/[method disable_mod] 启停；[method install_mod_from_zip] 事务性解压 zip mod。
 	</description>
 	<methods>
 		<method name="is_initialized" qualifiers="const">
 			<return type="bool" />
-			<description>True once the routing layer and initial mod scan are built.</description>
+			<description>True once the routing layer and initial mod scan are built.
+
+			路由层与初始 mod 扫描完成后为 true。</description>
 		</method>
 		<method name="has" qualifiers="const">
 			<return type="bool" />
 			<param index="0" name="id" type="String" />
-			<description>True if `id` resolves to any provider.</description>
+			<description>True if `id` resolves to any provider, or is reserved.
+
+			该 `id` 是否解析到某提供者，或被预留。</description>
+		</method>
+		<method name="exists" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="id" type="String" />
+			<description>Convenience alias of [method has].
+
+			 [method has] 的便捷别名。</description>
 		</method>
 		<method name="resolve" qualifiers="const">
 			<return type="String" />
 			<param index="0" name="id" type="String" />
-			<description>Physical path of the winning provider for `id` ("" if unknown).</description>
+			<description>Physical path of the winning provider for `id` ("" if unknown).
+
+			 `id` 胜出提供者的物理路径（未知则为 ""）。</description>
 		</method>
 		<method name="get_data" qualifiers="const">
 			<return type="Variant" />
 			<param index="0" name="id" type="String" />
-			<description>Load by id: .json/.csv parse to Dictionary/Array, everything else returns the Resource. Hit the in-memory database when it is populated.</description>
+			<description>Load by id: .json/.csv parse to Dictionary/Array, everything else returns the Resource. Hits the in-memory database when populated.
+
+			 按 id 加载：.json/.csv 解析为 Dictionary/Array，其余返回 Resource。数据库已填充时走内存。</description>
+		</method>
+		<method name="get" qualifiers="const">
+			<return type="Variant" />
+			<param index="0" name="id" type="String" />
+			<description>Convenience alias of [method get_data].
+
+			 [method get_data] 的便捷别名。</description>
 		</method>
 		<method name="get_resource" qualifiers="const">
 			<return type="Resource" />
 			<param index="0" name="id" type="String" />
-			<description>Load a Resource by id (scenes, scripts, textures, fonts, audio).</description>
+			<description>Load a Resource by id (scenes, scripts, textures, fonts, audio).
+
+			 按 id 加载 Resource（场景、脚本、贴图、字体、音频）。</description>
+		</method>
+		<method name="load" qualifiers="const">
+			<return type="Resource" />
+			<param index="0" name="id" type="String" />
+			<description>Convenience alias of [method get_resource].
+
+			 [method get_resource] 的便捷别名。</description>
 		</method>
 		<method name="instantiate">
 			<return type="Variant" />
 			<param index="0" name="id" type="String" />
-			<description>Instantiate a PackedScene resolved by id, returning a Node.</description>
+			<description>Instantiate a PackedScene resolved by id, returning a Node.
+
+			 按 id 实例化 PackedScene，返回 Node。</description>
 		</method>
 		<method name="register">
 			<return type="bool" />
 			<param index="0" name="id" type="String" />
 			<param index="1" name="path" type="String" />
-			<description>Explicitly map `id` to `path`; beats implicit providers at equal priority.</description>
+			<description>Explicitly map `id` to `path`; beats implicit providers at equal priority.
+
+			 显式把 `id` 映射到 `path`；同优先级下胜过隐式提供者。</description>
 		</method>
 		<method name="unregister">
 			<return type="bool" />
 			<param index="0" name="id" type="String" />
-			<description>Remove an explicit registration.</description>
+			<description>Remove an explicit registration.
+
+			 移除一条显式注册。</description>
 		</method>
 		<method name="list_ids" qualifiers="const">
 			<return type="Dictionary" />
 			<param index="0" name="prefix" type="String" default="&quot;&quot;" />
-			<description>All ids as { namespace: PackedStringArray }, optionally filtered by prefix.</description>
+			<description>All ids as { namespace: PackedStringArray }, optionally filtered by a dotted prefix (e.g. `"game:units."`).
+
+			 所有 id，格式 { namespace: PackedStringArray }，可按点分隔前缀过滤（如 `"game:units."`）。</description>
 		</method>
 		<method name="list_namespaces" qualifiers="const">
 			<return type="PackedStringArray" />
-			<description>Every content namespace currently indexed.</description>
+			<description>Every content namespace currently indexed.
+
+			 当前索引的全部内容命名空间。</description>
+		</method>
+		<method name="get_id_info" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="id" type="String" />
+			<description>Full status of an id: `valid`, `resolved`, `path`, `provider_mod`, `priority`, `explicit`, `preloaded`, `reserved`, `type`, `data_type`.
+
+			 id 的完整状态：`valid`、`resolved`、`path`、`provider_mod`、`priority`、`explicit`、`preloaded`、`reserved`、`type`、`data_type`。</description>
+		</method>
+		<method name="get_id_data_type" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="id" type="String" />
+			<description>Coarse category of the resolved file: `data`/`scene`/`script`/`image`/`audio`/`font`/`resource`.
+
+			 解析文件的粗分类：`data`/`scene`/`script`/`image`/`audio`/`font`/`resource`。</description>
+		</method>
+		<method name="set_id_type">
+			<return type="bool" />
+			<param index="0" name="id" type="String" />
+			<param index="1" name="type" type="String" />
+			<description>Tag an id with a logical type (e.g. "unit", "item") for filtering with [method list_ids_by_type]. Empty type removes the tag.
+
+			 给 id 打逻辑类型标签（如 "unit"、"item"），配合 [method list_ids_by_type] 过滤。空类型移除标签。</description>
+		</method>
+		<method name="get_id_type" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="id" type="String" />
+			<description>Logical type tag of an id ("" if untagged).
+
+			 id 的逻辑类型标签（未打标签则为 ""）。</description>
+		</method>
+		<method name="list_ids_by_type" qualifiers="const">
+			<return type="PackedStringArray" />
+			<param index="0" name="type" type="String" />
+			<description>Every id tagged with `type` (dotted ids, sorted).
+
+			 所有打了 `type` 标签的 id（点分隔、排序）。</description>
+		</method>
+		<method name="reserve">
+			<return type="bool" />
+			<param index="0" name="id" type="String" />
+			<description>Reserve an id: declares it without a provider so [method has] reports true. Useful for reserving namespaces/names ahead of content.
+
+			 预留一个 id：声明存在但不带提供者，[method has] 报告 true。用于提前预留命名。</description>
+		</method>
+		<method name="unreserve">
+			<return type="bool" />
+			<param index="0" name="id" type="String" />
+			<description>Cancel a reservation.
+
+			 取消一条预留。</description>
 		</method>
 		<method name="preload_database">
 			<return type="void" />
-			<description>Preload every data id (or all ids in "all" mode) into the in-memory database.</description>
+			<description>Preload every data id (or all ids in "all" mode) into the in-memory database.
+
+			 把全部数据 id（"all" 模式下为全部 id）预载进内存数据库。</description>
+		</method>
+		<method name="preload_database_async">
+			<return type="bool" />
+			<description>Preload in bounded batches across frames (never blocks); emits [signal preload_progress] then [signal database_loaded].
+
+			 分批跨帧预载（不阻塞）；发射 [signal preload_progress] 然后 [signal database_loaded]。</description>
 		</method>
 		<method name="reload_database">
 			<return type="void" />
-			<description>Clear and re-preload the database per the current mode.</description>
+			<description>Clear and re-preload the database per the current mode.
+
+			 按当前模式清空并重新预载数据库。</description>
 		</method>
 		<method name="get_all" qualifiers="const">
 			<return type="Dictionary" />
 			<param index="0" name="prefix" type="String" default="&quot;&quot;" />
-			<description>Loaded database entries as { canonical_id: value }.</description>
+			<description>Loaded database entries as { canonical_id: value }.
+
+			 已加载的数据库条目，格式 { canonical_id: value }。</description>
 		</method>
 		<method name="set_data">
 			<return type="bool" />
 			<param index="0" name="id" type="String" />
 			<param index="1" name="value" type="Variant" />
-			<description>Overwrite a database entry in place (emits [signal database_entry_changed]).</description>
+			<description>Overwrite a database entry in place (emits [signal database_entry_changed]).
+
+			 原地改写一条数据库条目（发射 [signal database_entry_changed]）。</description>
 		</method>
 		<method name="delete_data">
 			<return type="bool" />
 			<param index="0" name="id" type="String" />
-			<description>Remove a database entry (lookups fall back to the file).</description>
+			<description>Remove a database entry (lookups fall back to the file).
+
+			 移除一条数据库条目（查询回退到文件）。</description>
 		</method>
 		<method name="get_database_mode" qualifiers="const">
 			<return type="String" />
-			<description>"data" (default), "all", or "off".</description>
+			<description>"data" (default), "all", or "off".
+
+			 "data"（默认）、"all" 或 "off"。</description>
 		</method>
 		<method name="set_database_mode">
 			<return type="bool" />
 			<param index="0" name="mode" type="String" />
-			<description>Switch database mode and reload.</description>
-		</method>
-		<method name="get" qualifiers="const">
-			<return type="Variant" />
-			<param index="0" name="id" type="String" />
-			<description>Convenience alias of [method get_data].</description>
-		</method>
-		<method name="load" qualifiers="const">
-			<return type="Resource" />
-			<param index="0" name="id" type="String" />
-			<description>Convenience alias of [method get_resource].</description>
-		</method>
-		<method name="exists" qualifiers="const">
-			<return type="bool" />
-			<param index="0" name="id" type="String" />
-			<description>Convenience alias of [method has].</description>
-		</method>
-		<method name="get_mod_path" qualifiers="const">
-			<return type="String" />
-			<param index="0" name="mod_id" type="String" />
-			<description>Root directory of a mod ("" if unknown).</description>
-		</method>
-		<method name="preload_database_async">
-			<return type="bool" />
-			<description>Preload in bounded batches across frames (never blocks the main loop); emits [signal preload_progress] then [signal database_loaded].</description>
+			<description>Switch database mode and reload.
+
+			 切换数据库模式并重载。</description>
 		</method>
 		<method name="finish_startup">
 			<return type="void" />
-			<description>Instantiate every enabled mod's mod_main.gd. Call once from a bootstrap autoload's _ready.</description>
+			<description>Instantiate every enabled mod's mod_main.gd. Call once from a bootstrap autoload's _ready.
+
+			 实例化所有已启用 mod 的 mod_main.gd。在 bootstrap autoload 的 _ready 调用一次。</description>
 		</method>
 		<method name="add_hook">
 			<return type="bool" />
 			<param index="0" name="hook_id" type="String" />
 			<param index="1" name="callable" type="Callable" />
 			<param index="2" name="priority" type="int" default="0" />
-			<description>Register a Callable on a hook point. Called from a mod_main it is attributed to that mod automatically.</description>
+			<description>Register a Callable on a hook point. Called from a mod_main it is attributed to that mod automatically.
+
+			 在钩子点上注册一个 Callable。从 mod_main 调用时自动归属该 mod。</description>
 		</method>
 		<method name="remove_hook">
 			<return type="bool" />
 			<param index="0" name="hook_id" type="String" />
 			<param index="1" name="callable" type="Callable" />
-			<description>Remove one handler.</description>
+			<description>Remove one handler.
+
+			 移除一个处理器。</description>
 		</method>
 		<method name="invoke_hook">
 			<return type="Variant" />
 			<param index="0" name="hook_id" type="String" />
 			<param index="1" name="args" type="Array" default="[]" />
 			<param index="2" name="default" type="Variant" default="null" />
-			<description>Pipeline: each handler receives (current, ...args) and returns the rewritten value; the last value is returned. Handlers run by priority.</description>
+			<description>Pipeline: each handler receives (current, ...args) and returns the rewritten value; the last value is returned. Handlers run by priority.
+
+			 管线：每个处理器收到 (current, ...args) 并返回改写后的值；返回最后一个值。处理器按优先级执行。</description>
 		</method>
 		<method name="emit_hook">
 			<return type="void" />
 			<param index="0" name="hook_id" type="String" />
 			<param index="1" name="args" type="Array" default="[]" />
-			<description>Fire-and-forget broadcast to all handlers.</description>
+			<description>Fire-and-forget broadcast to all handlers.
+
+			 向所有处理器做即发即忘的广播。</description>
 		</method>
 		<method name="check_hook">
 			<return type="bool" />
 			<param index="0" name="hook_id" type="String" />
 			<param index="1" name="args" type="Array" default="[]" />
-			<description>Predicate: true when no handler vetoes (any handler returning false short-circuits).</description>
+			<description>Predicate: true when no handler vetoes (any handler returning false short-circuits).
+
+			 判定：无处理器否决时返回 true（任一返回 false 即短路）。</description>
 		</method>
 		<method name="register_hook_point">
 			<return type="bool" />
 			<param index="0" name="hook_id" type="String" />
 			<param index="1" name="description" type="String" />
 			<param index="2" name="arg_types" type="PackedStringArray" default="[]" />
-			<description>Declare a hook point for docs/editor discovery.</description>
+			<description>Declare a hook point for docs/editor discovery.
+
+			 声明一个钩子点，供文档/编辑器发现。</description>
 		</method>
 		<method name="list_hooks" qualifiers="const">
 			<return type="Dictionary" />
 			<param index="0" name="prefix" type="String" default="&quot;&quot;" />
-			<description>Registered hooks as { hook_id: { count, mods } }.</description>
+			<description>Registered hooks as { hook_id: { count, mods } }.
+
+			 已注册钩子，格式 { hook_id: { count, mods } }。</description>
 		</method>
 		<method name="list_hook_points" qualifiers="const">
 			<return type="Dictionary" />
 			<param index="0" name="prefix" type="String" default="&quot;&quot;" />
-			<description>Declared hook points as { hook_id: { description, arg_types } }.</description>
+			<description>Declared hook points as { hook_id: { description, arg_types } }.
+
+			 已声明钩子点，格式 { hook_id: { description, arg_types } }。</description>
 		</method>
 		<method name="get_mod_ids" qualifiers="const">
 			<return type="PackedStringArray" />
-			<description>Every discovered mod id (valid or not).</description>
+			<description>Every discovered mod id (valid or not).
+
+			 所有发现的 mod id（无论有效与否）。</description>
 		</method>
 		<method name="get_load_order" qualifiers="const">
 			<return type="PackedStringArray" />
-			<description>Dependency-sorted load order of valid mods (base excluded).</description>
+			<description>Dependency-sorted load order of valid mods (base excluded).
+
+			 有效 mod 的依赖排序加载顺序（不含 base）。</description>
 		</method>
 		<method name="get_mod_errors" qualifiers="const">
 			<return type="PackedStringArray" />
 			<param index="0" name="mod_id" type="String" />
-			<description>Human-readable errors for a mod (missing deps, cycle, bad manifest).</description>
+			<description>Human-readable errors for a mod (missing deps, cycle, bad manifest).
+
+			 某个 mod 的可读错误（缺依赖、循环、坏 manifest）。</description>
+		</method>
+		<method name="get_mod_path" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="mod_id" type="String" />
+			<description>Root directory of a mod ("" if unknown).
+
+			 某个 mod 的根目录（未知则为 ""）。</description>
 		</method>
 		<method name="is_mod_enabled" qualifiers="const">
 			<return type="bool" />
 			<param index="0" name="mod_id" type="String" />
-			<description>True when the mod's content is stacked in the registry.</description>
+			<description>True when the mod's content is stacked in the registry.
+
+			 mod 内容是否已堆叠进注册表。</description>
 		</method>
 		<method name="is_mod_loaded" qualifiers="const">
 			<return type="bool" />
 			<param index="0" name="mod_id" type="String" />
-			<description>True when the mod's mod_main is instantiated.</description>
+			<description>True when the mod's mod_main is instantiated.
+
+			 mod 的 mod_main 是否已实例化。</description>
 		</method>
 		<method name="enable_mod">
 			<return type="bool" />
 			<param index="0" name="mod_id" type="String" />
-			<description>Activate a mod: stack content, instantiate mod_main, register hooks.</description>
+			<description>Activate a mod: stack content, instantiate mod_main, register hooks.
+
+			 激活一个 mod：堆叠内容、实例化 mod_main、注册钩子。</description>
 		</method>
 		<method name="disable_mod">
 			<return type="bool" />
 			<param index="0" name="mod_id" type="String" />
-			<description>Deactivate a mod (refused while active mods depend on it).</description>
+			<description>Deactivate a mod (refused while active mods depend on it).
+
+			 停用一个 mod（有依赖它的启用 mod 时拒绝）。</description>
 		</method>
 		<method name="load_mod">
 			<return type="bool" />
 			<param index="0" name="mod_id" type="String" />
-			<description>Runtime load: alias of enable_mod.</description>
+			<description>Runtime load: alias of enable_mod.
+
+			 运行时加载：enable_mod 的别名。</description>
 		</method>
 		<method name="unload_mod">
 			<return type="bool" />
 			<param index="0" name="mod_id" type="String" />
-			<description>Runtime unload: alias of disable_mod.</description>
+			<description>Runtime unload: alias of disable_mod.
+
+			 运行时卸载：disable_mod 的别名。</description>
 		</method>
 		<method name="install_mod_from_zip">
 			<return type="int" />
 			<param index="0" name="zip_path" type="String" />
-			<description>Transactionally extract a zip mod into user://vml/mods and activate it. Returns an Error code.</description>
+			<description>Transactionally extract a zip mod into user://vml/mods and activate it. Returns an Error code.
+
+			 事务性把 zip mod 解压到 user://vml/mods 并激活。返回 Error 码。</description>
 		</method>
 		<method name="uninstall_mod">
 			<return type="int" />
 			<param index="0" name="mod_id" type="String" />
-			<description>Remove an installed (user://) mod entirely. Returns an Error code.</description>
+			<description>Remove an installed (user://) mod entirely. Returns an Error code.
+
+			 彻底移除一个已安装（user://）的 mod。返回 Error 码。</description>
 		</method>
 		<method name="reload_resources">
 			<return type="void" />
 			<param index="0" name="paths" type="PackedStringArray" />
-			<description>Dev hot reload: re-scan affected mods and refresh their database entries.</description>
+			<description>Dev hot reload: re-scan affected mods and refresh their database entries.
+
+			 开发热重载：重扫受影响的 mod 并刷新其数据库条目。</description>
 		</method>
 		<method name="get_content_roots" qualifiers="const">
 			<return type="PackedStringArray" />
-			<description>Directories the hot-reloader should watch (base layer + enabled mods).</description>
+			<description>Directories the hot-reloader should watch (base layer + enabled mods).
+
+			 热重载应监视的目录（基础层 + 已启用 mod）。</description>
 		</method>
 		<method name="start_hot_reload">
 			<return type="void" />
 			<param index="0" name="interval" type="float" default="0.5" />
-			<description>Start a polling hot-reloader node (dev builds / editor).</description>
+			<description>Start a polling hot-reloader node (dev builds / editor).
+
+			 启动轮询热重载节点（开发构建 / 编辑器）。</description>
 		</method>
 		<method name="rescan">
 			<return type="void" />
-			<description>Full re-discovery and rebuild of the routing layer + database.</description>
+			<description>Full re-discovery and rebuild of the routing layer + database.
+
+			 完整重新发现并重建路由层 + 数据库。</description>
 		</method>
 	</methods>
 	<signals>
 		<signal name="database_loaded">
-			<description>Emitted after a full database preload.</description>
+			<description>Emitted after a full database preload.
+
+			 数据库完整预载后发射。</description>
 		</signal>
 		<signal name="preload_progress">
 			<param index="0" name="current" type="int" />
 			<param index="1" name="total" type="int" />
-			<description>Emitted by [method preload_database_async] as batches complete.</description>
+			<description>Emitted by [method preload_database_async] as batches complete.
+
+			 [method preload_database_async] 分批完成时发射。</description>
 		</signal>
 		<signal name="database_entry_changed">
 			<param index="0" name="id" type="String" />
-			<description>A database entry was rewritten or removed.</description>
+			<description>A database entry was rewritten or removed.
+
+			 一条数据库条目被改写或移除。</description>
 		</signal>
 		<signal name="mod_loaded">
 			<param index="0" name="mod_id" type="String" />
-			<description>A mod's mod_main was instantiated.</description>
+			<description>A mod's mod_main was instantiated.
+
+			 某个 mod 的 mod_main 被实例化。</description>
 		</signal>
 		<signal name="mod_unloaded">
 			<param index="0" name="mod_id" type="String" />
-			<description>A mod was unloaded.</description>
+			<description>A mod was unloaded.
+
+			 某个 mod 被卸载。</description>
 		</signal>
 		<signal name="mod_enabled">
 			<param index="0" name="mod_id" type="String" />
-			<description>A mod was enabled.</description>
+			<description>A mod was enabled.
+
+			 某个 mod 被启用。</description>
 		</signal>
 		<signal name="mod_disabled">
 			<param index="0" name="mod_id" type="String" />
-			<description>A mod was disabled.</description>
+			<description>A mod was disabled.
+
+			 某个 mod 被停用。</description>
 		</signal>
 		<signal name="registry_rebuilt">
-			<description>The routing layer was rebuilt (rescan / hot reload).</description>
+			<description>The routing layer was rebuilt (rescan / hot reload).
+
+			 路由层被重建（重扫 / 热重载）。</description>
 		</signal>
 	</signals>
 </class>

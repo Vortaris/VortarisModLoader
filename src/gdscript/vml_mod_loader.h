@@ -78,6 +78,23 @@ public:
 	bool exists(const String &p_id) const;
 	/// Mod root directory ("" if unknown).
 	String get_mod_path(const String &p_mod_id) const;
+	/// Manifest version of a mod ("" if unknown).
+	String get_mod_version(const String &p_mod_id) const;
+
+	// --- id metadata & operations --------------------------------------
+	/// Full status of an id: { valid, resolved, path, provider_mod, priority,
+	/// explicit, preloaded, reserved, type, data_type }.
+	Dictionary get_id_info(const String &p_id) const;
+	/// Tag an id with a logical type (e.g. "unit", "item") for filtering.
+	bool set_id_type(const String &p_id, const String &p_type);
+	String get_id_type(const String &p_id) const;
+	/// Every id tagged with `type` (dotted ids, sorted).
+	PackedStringArray list_ids_by_type(const String &p_type) const;
+	/// Reserve an id (declares it without a provider; has() reports true).
+	bool reserve(const String &p_id);
+	bool unreserve(const String &p_id);
+	/// Coarse data category of the resolved file: data/scene/script/image/audio/font/resource.
+	String get_id_data_type(const String &p_id) const;
 
 	// --- lifecycle / mod_main ------------------------------------------
 	/// Instantiate every enabled mod's mod_main.gd (the game calls this from a
@@ -162,6 +179,11 @@ private:
 	void scan_base_layer();
 	void scan_mods();
 	void _process_preload_batch();
+	void log_verbose(const String &p_msg) const;
+	bool is_reserved(const vortarismodloader::ResourceId &p_id) const;
+	String data_type_for(const String &p_path) const;
+	/// Load the value for a provider: json/csv parse to data, everything else is a Resource.
+	Variant load_entry_value(const vortarismodloader::ProviderEntry &p_e) const;
 	String owning_mod(const String &p_path) const;
 	ModRecord *find_mod(const String &p_mod_id);
 	const ModRecord *find_mod(const String &p_mod_id) const;
@@ -191,7 +213,10 @@ private:
 	std::vector<ModRecord> mods_;
 	std::vector<String> load_order_;
 	std::vector<vortarismodloader::ResourceId> pending_ids_;
+	std::vector<vortarismodloader::ResourceId> reserved_ids_;
+	std::unordered_map<vortarismodloader::ResourceIdKey, String, vortarismodloader::ResourceIdKeyHash> id_types_;
 	size_t preload_index_ = 0;
+	bool preload_in_flight_ = false;
 	VMLHotReloader *hot_reloader_ = nullptr;
 	bool profile_loaded_ = false;
 	bool initialized_ = false;

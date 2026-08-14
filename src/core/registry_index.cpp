@@ -71,10 +71,12 @@ bool RegistryIndex::remove_provider(const ResourceId &p_id, const godot::String 
 								return p_e.mod_id == p_mod_id && p_e.physical_path == p_physical_path;
 							}),
 			providers.end());
+	// Capture the result BEFORE the entry may be destroyed by map_.erase().
+	const bool removed = providers.size() != before;
 	if (providers.empty()) {
 		map_.erase(it);
 	}
-	return providers.size() != before;
+	return removed;
 }
 
 void RegistryIndex::set_mod_priority(const godot::String &p_mod_id, int p_priority) {

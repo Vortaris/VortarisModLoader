@@ -11,6 +11,8 @@
 #include <godot_cpp/classes/packed_scene.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
+#include <godot_cpp/classes/scene_tree.hpp>
+#include <godot_cpp/classes/window.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/memory.hpp>
 #include <godot_cpp/core/print_string.hpp>
@@ -111,11 +113,10 @@ void VMLModLoader::scan_mods() {
 	std::vector<String> order_errors;
 	vortarismodloader::DependencyGraph::compute_order(valid_manifests, order, order_errors);
 
-	// 5) Attach order + errors back to records.
-	for (ModRecord &rec : mods_) {
-		if (std::find(order.begin(), order.end(), rec.manifest.id) != order.end()) {
-			load_order_.push_back(rec.manifest.id);
-		}
+	// 5) Load order = the dependency-sorted topological order, NOT discovery order.
+	load_order_.clear();
+	for (const String &id : order) {
+		load_order_.push_back(id);
 	}
 	for (const String &err : order_errors) {
 		const int colon = err.find(":");
@@ -144,7 +145,7 @@ bool VMLModLoader::has(const String &p_id) const {
 	if (!vortarismodloader::ResourceId::parse(p_id, rid)) {
 		return false;
 	}
-	return registry_.has(rid);
+	return registry_.has(rid) || is_reserved(rid);
 }
 
 String VMLModLoader::resolve(const String &p_id) const {
@@ -265,12 +266,7 @@ void VMLModLoader::preload_database() {
 		if (database_mode_ == DatabaseMode::DATA && !is_data) {
 			continue;
 		}
-		Variant val;
-		if (is_data) {
-			val = vortarismodloader::LoaderBackend::load_data(e->physical_path);
-		} else {
-			val = vortarismodloader::LoaderBackend::load_resource(e->physical_path);
-		}
+		const Variant val = load_entry_value(*e);
 		if (val.get_type() != Variant::NIL) {
 			database_.set(id, val, e->physical_path, e->mod_id);
 		}
@@ -279,6 +275,9 @@ void VMLModLoader::preload_database() {
 }
 
 void VMLModLoader::reload_database() {
+	preload_in_flight_ = false; // cancel any in-flight async chain
+	pending_ids_.clear();
+	preload_index_ = 0;
 	preload_database();
 }
 
@@ -349,7 +348,142 @@ String VMLModLoader::get_mod_path(const String &p_mod_id) const {
 	return rec != nullptr ? rec->root : String();
 }
 
+String VMLModLoader::get_mod_version(const String &p_mod_id) const {
+	const ModRecord *rec = find_mod(p_mod_id);
+	return rec != nullptr ? rec->manifest.version : String();
+}
+
+bool VMLModLoader::is_reserved(const vortarismodloader::ResourceId &p_id) const {
+	for (const vortarismodloader::ResourceId &r : reserved_ids_) {
+		if (r == p_id) {
+			return true;
+		}
+	}
+	return false;
+}
+
+Variant VMLModLoader::load_entry_value(const vortarismodloader::ProviderEntry &p_e) const {
+	const String ext = p_e.physical_path.get_extension().to_lower();
+	if (ext == "json" || ext == "csv") {
+		return vortarismodloader::LoaderBackend::load_data(p_e.physical_path);
+	}
+	return vortarismodloader::LoaderBackend::load_resource(p_e.physical_path);
+}
+
+String VMLModLoader::data_type_for(const String &p_path) const {
+	const String ext = p_path.get_extension().to_lower();
+	if (ext == "json" || ext == "csv" || ext == "tres" || ext == "res") {
+		return "data";
+	}
+	if (ext == "tscn" || ext == "scn") {
+		return "scene";
+	}
+	if (ext == "gd" || ext == "cs") {
+		return "script";
+	}
+	if (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "webp" || ext == "bmp" || ext == "tga") {
+		return "image";
+	}
+	if (ext == "wav" || ext == "mp3" || ext == "ogg") {
+		return "audio";
+	}
+	if (ext == "ttf" || ext == "otf") {
+		return "font";
+	}
+	return "resource";
+}
+
+Dictionary VMLModLoader::get_id_info(const String &p_id) const {
+	Dictionary info;
+	vortarismodloader::ResourceId rid;
+	if (!vortarismodloader::ResourceId::parse(p_id, rid)) {
+		info["valid"] = false;
+		return info;
+	}
+	info["valid"] = true;
+	const vortarismodloader::ProviderEntry *e = registry_.lookup(rid);
+	info["resolved"] = e != nullptr;
+	if (e != nullptr) {
+		info["path"] = e->physical_path;
+		info["provider_mod"] = e->mod_id;
+		info["priority"] = e->priority;
+		info["explicit"] = e->explicit_;
+		info["data_type"] = data_type_for(e->physical_path);
+	} else {
+		info["data_type"] = "";
+	}
+	info["preloaded"] = database_.has(rid);
+	info["reserved"] = is_reserved(rid);
+	info["type"] = get_id_type(p_id);
+	return info;
+}
+
+bool VMLModLoader::set_id_type(const String &p_id, const String &p_type) {
+	vortarismodloader::ResourceId rid;
+	if (!vortarismodloader::ResourceId::parse(p_id, rid)) {
+		return false;
+	}
+	if (p_type.is_empty()) {
+		id_types_.erase({ rid.ns, rid.path });
+	} else {
+		id_types_[{ rid.ns, rid.path }] = p_type;
+	}
+	return true;
+}
+
+String VMLModLoader::get_id_type(const String &p_id) const {
+	vortarismodloader::ResourceId rid;
+	if (!vortarismodloader::ResourceId::parse(p_id, rid)) {
+		return String();
+	}
+	const auto it = id_types_.find({ rid.ns, rid.path });
+	return it == id_types_.end() ? String() : it->second;
+}
+
+PackedStringArray VMLModLoader::list_ids_by_type(const String &p_type) const {
+	PackedStringArray out;
+	for (const auto &kv : id_types_) {
+		if (kv.second == p_type) {
+			out.push_back(String(kv.first.ns) + String(":") + String(kv.first.path));
+		}
+	}
+	out.sort();
+	return out;
+}
+
+bool VMLModLoader::reserve(const String &p_id) {
+	vortarismodloader::ResourceId rid;
+	if (!vortarismodloader::ResourceId::parse(p_id, rid)) {
+		return false;
+	}
+	if (!is_reserved(rid)) {
+		reserved_ids_.push_back(rid);
+	}
+	return true;
+}
+
+bool VMLModLoader::unreserve(const String &p_id) {
+	vortarismodloader::ResourceId rid;
+	if (!vortarismodloader::ResourceId::parse(p_id, rid)) {
+		return false;
+	}
+	const size_t before = reserved_ids_.size();
+	reserved_ids_.erase(std::remove_if(reserved_ids_.begin(), reserved_ids_.end(),
+									[&](const vortarismodloader::ResourceId &r) { return r == rid; }),
+			reserved_ids_.end());
+	return reserved_ids_.size() != before;
+}
+
+String VMLModLoader::get_id_data_type(const String &p_id) const {
+	const String path = resolve(p_id);
+	return path.is_empty() ? String() : data_type_for(path);
+}
+
 bool VMLModLoader::preload_database_async() {
+	if (preload_in_flight_) {
+		return false; // already running
+	}
+	database_.clear(); // same semantics as the sync preload
 	pending_ids_.clear();
 	preload_index_ = 0;
 	if (database_mode_ == DatabaseMode::OFF) {
@@ -363,6 +497,7 @@ bool VMLModLoader::preload_database_async() {
 		emit_signal("database_loaded");
 		return true;
 	}
+	preload_in_flight_ = true;
 	emit_signal("preload_progress", 0, (int)pending_ids_.size());
 	call_deferred("_process_preload_batch");
 	return true;
@@ -382,12 +517,7 @@ void VMLModLoader::_process_preload_batch() {
 		if (database_mode_ == DatabaseMode::DATA && !is_data) {
 			continue;
 		}
-		Variant val;
-		if (is_data) {
-			val = vortarismodloader::LoaderBackend::load_data(e->physical_path);
-		} else {
-			val = vortarismodloader::LoaderBackend::load_resource(e->physical_path);
-		}
+		const Variant val = load_entry_value(*e);
 		if (val.get_type() != Variant::NIL) {
 			database_.set(id, val, e->physical_path, e->mod_id);
 		}
@@ -395,6 +525,7 @@ void VMLModLoader::_process_preload_batch() {
 	emit_signal("preload_progress", (int)preload_index_, (int)pending_ids_.size());
 	if (preload_index_ >= pending_ids_.size()) {
 		pending_ids_.clear();
+		preload_in_flight_ = false;
 		emit_signal("database_loaded");
 	} else {
 		call_deferred("_process_preload_batch");
@@ -513,12 +644,7 @@ void VMLModLoader::scan_mod_content(ModRecord &p_rec) {
 			if (database_mode_ == DatabaseMode::DATA && !is_data) {
 				continue;
 			}
-			Variant val;
-			if (is_data) {
-				val = vortarismodloader::LoaderBackend::load_data(e->physical_path);
-			} else {
-				val = vortarismodloader::LoaderBackend::load_resource(e->physical_path);
-			}
+			const Variant val = load_entry_value(*e);
 			if (val.get_type() != Variant::NIL) {
 				database_.set(id, val, e->physical_path, e->mod_id);
 			}
@@ -574,6 +700,8 @@ bool VMLModLoader::activate_mod(const String &p_mod_id) {
 	}
 	rec->enabled = true;
 	save_profile();
+	print_line(String("VML: mod '") + p_mod_id + String("' enabled"));
+	log_verbose(String("stacked content, mod_main instantiated"));
 	emit_signal("mod_enabled", p_mod_id);
 	return true;
 }
@@ -597,6 +725,8 @@ bool VMLModLoader::deactivate_mod(const String &p_mod_id) {
 	rec->enabled = false;
 	rec->content_scanned = false; // re-scan on the next activate
 	save_profile();
+	print_line(String("VML: mod '") + p_mod_id + String("' disabled"));
+	log_verbose("hooks removed, content dropped");
 	emit_signal("mod_unloaded", p_mod_id);
 	emit_signal("mod_disabled", p_mod_id);
 	return true;
@@ -625,6 +755,8 @@ Error VMLModLoader::install_mod_from_zip(const String &p_zip_path) {
 		return err;
 	}
 	if (find_mod(m.id) != nullptr) {
+		// The zip was already extracted; remove the orphaned copy.
+		vortarismodloader::ZipInstaller::uninstall(String("user://vml/mods/") + m.id, "user://vml/trash");
 		return ERR_ALREADY_EXISTS;
 	}
 	ModRecord rec;
@@ -633,6 +765,7 @@ Error VMLModLoader::install_mod_from_zip(const String &p_zip_path) {
 	rec.manifest = m;
 	mods_.push_back(std::move(rec));
 	load_order_.push_back(m.id);
+	print_line(String("VML: installed mod '") + m.id + String("' from ") + p_zip_path);
 	return activate_mod(m.id) ? OK : ERR_UNAVAILABLE;
 }
 
@@ -641,8 +774,9 @@ Error VMLModLoader::uninstall_mod(const String &p_mod_id) {
 	if (rec == nullptr) {
 		return ERR_DOES_NOT_EXIST;
 	}
-	if (rec->enabled) {
-		deactivate_mod(p_mod_id);
+	if (rec->enabled && !deactivate_mod(p_mod_id)) {
+		rec->errors.push_back(String("cannot uninstall '") + p_mod_id + String("': still active"));
+		return ERR_UNAVAILABLE;
 	}
 	Error err = OK;
 	if (rec->from_zip) {
@@ -653,7 +787,14 @@ Error VMLModLoader::uninstall_mod(const String &p_mod_id) {
 							[&](const ModRecord &m) { return m.manifest.id == p_mod_id; }),
 			mods_.end());
 	save_profile();
+	print_line(String("VML: uninstalled mod '") + p_mod_id + String("'"));
 	return err;
+}
+
+void VMLModLoader::log_verbose(const String &p_msg) const {
+	if (ProjectSettings::get_singleton()->get_setting("vortarismodloader/verbose", false)) {
+		print_line(String("VML[v] ") + p_msg);
+	}
 }
 
 String VMLModLoader::owning_mod(const String &p_path) const {
@@ -706,29 +847,15 @@ void VMLModLoader::reload_resources(const PackedStringArray &p_paths) {
 		database_.erase_mod(mid);
 		rec->content_scanned = false;
 		scan_mod_content(*rec);
-		if (database_mode_ == DatabaseMode::OFF) {
-			continue;
-		}
-		for (const vortarismodloader::ResourceId &id : registry_.all_ids()) {
-			const vortarismodloader::ProviderEntry *e = registry_.lookup(id);
-			if (e == nullptr || e->mod_id != mid) {
-				continue;
+		if (database_mode_ != DatabaseMode::OFF) {
+			// scan_mod_content() already refreshed this mod's entries; just notify.
+			for (const vortarismodloader::ResourceId &id : registry_.all_ids()) {
+				const vortarismodloader::ProviderEntry *e = registry_.lookup(id);
+				if (e == nullptr || e->mod_id != mid) {
+					continue;
+				}
+				emit_signal("database_entry_changed", id.canonical());
 			}
-			const String ext = e->physical_path.get_extension().to_lower();
-			const bool is_data = is_data_extension(ext);
-			if (database_mode_ == DatabaseMode::DATA && !is_data) {
-				continue;
-			}
-			Variant val;
-			if (is_data) {
-				val = vortarismodloader::LoaderBackend::load_data(e->physical_path);
-			} else {
-				val = vortarismodloader::LoaderBackend::load_resource(e->physical_path);
-			}
-			if (val.get_type() != Variant::NIL) {
-				database_.set(id, val, e->physical_path, e->mod_id);
-			}
-			emit_signal("database_entry_changed", id.canonical());
 		}
 	}
 	emit_signal("registry_rebuilt");
@@ -759,11 +886,22 @@ void VMLModLoader::start_hot_reload(double p_interval) {
 	hot_reloader_ = memnew(VMLHotReloader);
 	hot_reloader_->set_poll_interval(p_interval);
 	hot_reloader_->set_name("VMLHotReloader");
-	add_child(hot_reloader_);
+	// The VML singleton itself is not in the scene tree, so _process would never
+	// run on a child node. Attach the poller to the SceneTree root instead.
+	SceneTree *tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop());
+	if (tree != nullptr) {
+		tree->get_root()->add_child(hot_reloader_);
+	} else {
+		add_child(hot_reloader_);
+	}
 	hot_reloader_->rescan();
 }
 
 void VMLModLoader::rescan() {
+	// Cancel any in-flight async preload chain.
+	preload_in_flight_ = false;
+	pending_ids_.clear();
+	preload_index_ = 0;
 	// Tear down runtime state first so nothing leaks or dangles.
 	for (ModRecord &rec : mods_) {
 		destroy_mod_main(rec);
@@ -792,6 +930,11 @@ void VMLModLoader::load_profile() {
 	}
 	const Dictionary d = parsed;
 	for (ModRecord &rec : mods_) {
+		// Never let a profile re-enable a mod with an invalid manifest.
+		if (!rec.manifest.valid()) {
+			rec.enabled = false;
+			continue;
+		}
 		if (d.has(rec.manifest.id) && d[rec.manifest.id].get_type() == Variant::BOOL) {
 			rec.enabled = d[rec.manifest.id];
 		}
@@ -973,6 +1116,14 @@ void VMLModLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("load", "id"), &VMLModLoader::load);
 	ClassDB::bind_method(D_METHOD("exists", "id"), &VMLModLoader::exists);
 	ClassDB::bind_method(D_METHOD("get_mod_path", "mod_id"), &VMLModLoader::get_mod_path);
+	ClassDB::bind_method(D_METHOD("get_mod_version", "mod_id"), &VMLModLoader::get_mod_version);
+	ClassDB::bind_method(D_METHOD("get_id_info", "id"), &VMLModLoader::get_id_info);
+	ClassDB::bind_method(D_METHOD("set_id_type", "id", "type"), &VMLModLoader::set_id_type);
+	ClassDB::bind_method(D_METHOD("get_id_type", "id"), &VMLModLoader::get_id_type);
+	ClassDB::bind_method(D_METHOD("list_ids_by_type", "type"), &VMLModLoader::list_ids_by_type);
+	ClassDB::bind_method(D_METHOD("reserve", "id"), &VMLModLoader::reserve);
+	ClassDB::bind_method(D_METHOD("unreserve", "id"), &VMLModLoader::unreserve);
+	ClassDB::bind_method(D_METHOD("get_id_data_type", "id"), &VMLModLoader::get_id_data_type);
 	ClassDB::bind_method(D_METHOD("preload_database_async"), &VMLModLoader::preload_database_async);
 	ClassDB::bind_method(D_METHOD("_process_preload_batch"), &VMLModLoader::_process_preload_batch);
 

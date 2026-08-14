@@ -7,11 +7,11 @@
 
 namespace vortarismodloader {
 
-// A namespaced content identifier: `namespace:path` (Minecraft ResourceLocation
+// A namespaced content identifier: `namespace.path` (Minecraft ResourceLocation
 // style). The namespace is usually the mod id; the path is an extension-free,
-// URL-safe slug that may contain '/'.
+// dotted slug (slashes are NOT allowed — ids are compact, never file-path-like).
 //
-// Examples: `game:units/knight`, `mymod:icons/archer`.
+// Examples: `game:units.knight`, `mymod:icons.archer`.
 struct ResourceId {
 	godot::String ns;
 	godot::String path;

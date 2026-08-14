@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<class name="VMLResourceRouter" inherits="ResourceFormatLoader" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+<class name="VMLResourceRouter" inherits="ResourceFormatLoader" api_type="extension" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
 	<brief_description>
-		Native ResourceFormatLoader resolving `vml://namespace:path` to the winning provider.
+		Native ResourceFormatLoader resolving `vml://namespace.path` to the winning provider.
+
+		原生 ResourceFormatLoader，把 `vml://namespace.path` 解析到胜出提供者。
 	</brief_description>
 	<description>
-		Registered automatically at engine start. Makes `load("vml://ns:path")` work,
-		including in exported builds (native loaders are registered at the C++ level).
-		Data ids (.json/.csv) are not Resources; read them with VML.get_data() instead.
+		Registered automatically at engine start. Makes `load("vml://ns.path")` work, including in exported builds (native loaders are registered at the C++ level). Data ids (.json/.csv) are not Resources; read them with [method VMLModLoader.get_data] instead.
+
+		引擎启动时自动注册。让 `load("vml://ns.path")` 可用，包括导出版（原生加载器在 C++ 层注册）。数据 id（.json/.csv）不是 Resource；请改用 [method VMLModLoader.get_data] 读取。
 	</description>
 </class>

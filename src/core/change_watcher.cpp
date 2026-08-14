@@ -48,16 +48,18 @@ void ChangeWatcher::seed_tree(const godot::String &p_root) {
 
 std::vector<godot::String> ChangeWatcher::poll() {
 	std::vector<godot::String> changed;
-	for (auto &kv : stats_) {
+	for (auto it = stats_.begin(); it != stats_.end();) {
 		Stat cur;
-		if (!stat_file(kv.first, cur)) {
-			changed.push_back(kv.first); // file gone
+		if (!stat_file(it->first, cur)) {
+			changed.push_back(it->first); // file gone — report once, then forget it
+			it = stats_.erase(it);
 			continue;
 		}
-		if (cur.mtime != kv.second.mtime || cur.size != kv.second.size) {
-			kv.second = cur;
-			changed.push_back(kv.first);
+		if (cur.mtime != it->second.mtime || cur.size != it->second.size) {
+			it->second = cur;
+			changed.push_back(it->first);
 		}
+		++it;
 	}
 	return changed;
 }
