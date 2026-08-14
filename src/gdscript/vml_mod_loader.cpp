@@ -3,8 +3,11 @@
 #include <algorithm>
 
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/classes/gd_script.hpp>
 #include <godot_cpp/classes/object.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
+#include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/memory.hpp>
 #include <godot_cpp/core/print_string.hpp>
@@ -385,6 +388,137 @@ PackedStringArray VMLModLoader::get_mod_errors(const String &p_mod_id) const {
 	return out;
 }
 
+void VMLModLoader::instantiate_mod_main(ModRecord &p_rec) {
+	if (p_rec.manifest.main_script.is_empty()) {
+		return;
+	}
+	const String script_path = p_rec.root + String("/") + p_rec.manifest.main_script;
+	if (!FileAccess::file_exists(script_path)) {
+		return;
+	}
+	Ref<GDScript> script = ResourceLoader::get_singleton()->load(script_path);
+	if (script.is_null()) {
+		p_rec.errors.push_back(String("failed to load mod_main: ") + script_path);
+		return;
+	}
+	// _init() runs inside new(); attribute hooks registered there to this mod.
+	active_mod_ = p_rec.manifest.id;
+	Variant inst = script->call("new");
+	active_mod_ = String();
+	Node *node = Object::cast_to<Node>(inst);
+	if (node == nullptr) {
+		p_rec.errors.push_back(String("mod_main must extend Node: ") + script_path);
+		return;
+	}
+	node->set_name(p_rec.manifest.id);
+	add_child(node);
+	emit_signal("mod_loaded", p_rec.manifest.id);
+}
+
+void VMLModLoader::finish_startup() {
+	if (startup_done_) {
+		return;
+	}
+	startup_done_ = true;
+	for (ModRecord &rec : mods_) {
+		if (rec.enabled) {
+			instantiate_mod_main(rec);
+		}
+	}
+}
+
+bool VMLModLoader::add_hook(const String &p_hook_id, const Callable &p_callable, int p_priority) {
+	vortarismodloader::ResourceId hid;
+	if (!vortarismodloader::ResourceId::parse(p_hook_id, hid) || !p_callable.is_valid()) {
+		ERR_PRINT(String("VML: invalid hook '") + p_hook_id + String("'"));
+		return false;
+	}
+	hooks_.add(hid, p_callable, active_mod_.is_empty() ? String("__runtime__") : active_mod_, p_priority);
+	return true;
+}
+
+bool VMLModLoader::remove_hook(const String &p_hook_id, const Callable &p_callable) {
+	vortarismodloader::ResourceId hid;
+	if (!vortarismodloader::ResourceId::parse(p_hook_id, hid)) {
+		return false;
+	}
+	return hooks_.remove(hid, p_callable);
+}
+
+void VMLModLoader::emit_hook(const String &p_hook_id, const Array &p_args) {
+	vortarismodloader::ResourceId hid;
+	if (vortarismodloader::ResourceId::parse(p_hook_id, hid)) {
+		hooks_.emit(hid, p_args);
+	}
+}
+
+Variant VMLModLoader::invoke_hook(const String &p_hook_id, const Array &p_args, const Variant &p_default) {
+	vortarismodloader::ResourceId hid;
+	if (!vortarismodloader::ResourceId::parse(p_hook_id, hid)) {
+		return p_default;
+	}
+	return hooks_.invoke(hid, p_args, p_default);
+}
+
+bool VMLModLoader::check_hook(const String &p_hook_id, const Array &p_args) {
+	vortarismodloader::ResourceId hid;
+	if (!vortarismodloader::ResourceId::parse(p_hook_id, hid)) {
+		return true;
+	}
+	return hooks_.check(hid, p_args);
+}
+
+bool VMLModLoader::register_hook_point(const String &p_hook_id, const String &p_description,
+		const PackedStringArray &p_arg_types) {
+	vortarismodloader::ResourceId hid;
+	if (!vortarismodloader::ResourceId::parse(p_hook_id, hid)) {
+		return false;
+	}
+	for (const HookPoint &hp : hook_points_) {
+		if (hp.id == hid) {
+			return true; // already declared
+		}
+	}
+	hook_points_.push_back(HookPoint{ hid, p_description, p_arg_types });
+	return true;
+}
+
+Dictionary VMLModLoader::list_hooks(const String &p_prefix) const {
+	Dictionary out;
+	for (const vortarismodloader::ResourceId &id : hooks_.all_hooks()) {
+		const String canonical = id.canonical();
+		if (!p_prefix.is_empty() && !canonical.begins_with(p_prefix)) {
+			continue;
+		}
+		Dictionary info;
+		info["count"] = hooks_.handler_count(id);
+		PackedStringArray mods;
+		for (const vortarismodloader::HookHandler &h : hooks_.handlers_for(id)) {
+			if (!mods.has(h.mod_id)) {
+				mods.push_back(h.mod_id);
+			}
+		}
+		info["mods"] = mods;
+		out[canonical] = info;
+	}
+	return out;
+}
+
+Dictionary VMLModLoader::list_hook_points(const String &p_prefix) const {
+	Dictionary out;
+	for (const HookPoint &hp : hook_points_) {
+		const String canonical = hp.id.canonical();
+		if (!p_prefix.is_empty() && !canonical.begins_with(p_prefix)) {
+			continue;
+		}
+		Dictionary info;
+		info["description"] = hp.description;
+		info["arg_types"] = hp.arg_types;
+		out[canonical] = info;
+	}
+	return out;
+}
+
 void VMLModLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("is_initialized"), &VMLModLoader::is_initialized);
 	ClassDB::bind_method(D_METHOD("has", "id"), &VMLModLoader::has);
@@ -407,8 +541,22 @@ void VMLModLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_database_mode"), &VMLModLoader::get_database_mode);
 	ClassDB::bind_method(D_METHOD("set_database_mode", "mode"), &VMLModLoader::set_database_mode);
 
+	ClassDB::bind_method(D_METHOD("finish_startup"), &VMLModLoader::finish_startup);
+	ClassDB::bind_method(D_METHOD("add_hook", "hook_id", "callable", "priority"), &VMLModLoader::add_hook,
+			DEFVAL(0));
+	ClassDB::bind_method(D_METHOD("remove_hook", "hook_id", "callable"), &VMLModLoader::remove_hook);
+	ClassDB::bind_method(D_METHOD("emit_hook", "hook_id", "args"), &VMLModLoader::emit_hook, DEFVAL(Array()));
+	ClassDB::bind_method(D_METHOD("invoke_hook", "hook_id", "args", "default"), &VMLModLoader::invoke_hook,
+			DEFVAL(Array()), DEFVAL(Variant()));
+	ClassDB::bind_method(D_METHOD("check_hook", "hook_id", "args"), &VMLModLoader::check_hook, DEFVAL(Array()));
+	ClassDB::bind_method(D_METHOD("register_hook_point", "hook_id", "description", "arg_types"),
+			&VMLModLoader::register_hook_point, DEFVAL(PackedStringArray()));
+	ClassDB::bind_method(D_METHOD("list_hooks", "prefix"), &VMLModLoader::list_hooks, DEFVAL(""));
+	ClassDB::bind_method(D_METHOD("list_hook_points", "prefix"), &VMLModLoader::list_hook_points, DEFVAL(""));
+
 	ADD_SIGNAL(MethodInfo("database_loaded"));
 	ADD_SIGNAL(MethodInfo("database_entry_changed", PropertyInfo(Variant::STRING, "id")));
+	ADD_SIGNAL(MethodInfo("mod_loaded", PropertyInfo(Variant::STRING, "mod_id")));
 }
 
 } // namespace godot

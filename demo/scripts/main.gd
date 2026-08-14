@@ -24,5 +24,13 @@ func _ready() -> void:
 	VML.set_data("game:units/peasant", {"name": "Peasant MK2", "health": 60})
 	print("modified -> ", JSON.stringify(VML.get_data("game:units/peasant")))
 
+	# Declarative hooks: activate mod_main entries, then exercise them.
+	VML.finish_startup()
+	var dmg = VML.invoke_hook("game:modify_damage", [10, "sword"], 10)
+	print("damage after hooks -> ", dmg)
+	print("can open door     -> ", VML.check_hook("game:can_open_door", ["gate"]))
+	VML.emit_hook("game:on_entity_killed", ["archer"])
+	print("hooks             -> ", JSON.stringify(VML.list_hooks()))
+
 	if DisplayServer.get_name() == "headless":
 		get_tree().quit(0)

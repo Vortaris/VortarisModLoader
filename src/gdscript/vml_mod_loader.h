@@ -7,10 +7,13 @@
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/ref.hpp>
 #include <godot_cpp/classes/resource.hpp>
+#include <godot_cpp/variant/array.hpp>
+#include <godot_cpp/variant/callable.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
 
 #include "../core/content_database.h"
+#include "../core/hook_registry.h"
 #include "../core/manifest.h"
 #include "../core/overlay_stack.h"
 #include "../core/registry_index.h"
@@ -61,6 +64,25 @@ public:
 	String get_database_mode() const;
 	bool set_database_mode(const String &p_mode);
 
+	// --- lifecycle / mod_main ------------------------------------------
+	/// Instantiate every enabled mod's mod_main.gd (the game calls this from a
+	/// bootstrap autoload's _ready). mod_main must register hooks/config in _init.
+	void finish_startup();
+
+	// --- declarative hooks ---------------------------------------------
+	bool add_hook(const String &p_hook_id, const Callable &p_callable, int p_priority = 0);
+	bool remove_hook(const String &p_hook_id, const Callable &p_callable);
+	void emit_hook(const String &p_hook_id, const Array &p_args = Array());
+	Variant invoke_hook(const String &p_hook_id, const Array &p_args = Array(),
+			const Variant &p_default = Variant());
+	bool check_hook(const String &p_hook_id, const Array &p_args = Array());
+	/// Declare an available hook point (for docs/editor discovery).
+	bool register_hook_point(const String &p_hook_id, const String &p_description,
+			const PackedStringArray &p_arg_types = PackedStringArray());
+	/// { hook_id: { "count": int, "mods": PackedStringArray } }
+	Dictionary list_hooks(const String &p_prefix = "") const;
+	Dictionary list_hook_points(const String &p_prefix = "") const;
+
 	// --- mod management (M3: discovery + ordering) ---------------------
 	PackedStringArray get_mod_ids() const;
 	PackedStringArray get_load_order() const;
@@ -86,8 +108,15 @@ private:
 		std::vector<String> errors;
 	};
 
+	struct HookPoint {
+		vortarismodloader::ResourceId id;
+		String description;
+		PackedStringArray arg_types;
+	};
+
 	void scan_base_layer();
 	void scan_mods();
+	void instantiate_mod_main(ModRecord &p_rec);
 	DatabaseMode mode_from_string(const String &p_mode) const;
 	String mode_to_string(DatabaseMode p_mode) const;
 	bool is_data_extension(const String &p_ext) const;
@@ -97,6 +126,10 @@ private:
 	vortarismodloader::OverlayStack overlays_;
 	mutable vortarismodloader::ContentDatabase database_;
 	mutable DatabaseMode database_mode_ = DatabaseMode::DATA;
+	vortarismodloader::HookRegistry hooks_;
+	std::vector<HookPoint> hook_points_;
+	String active_mod_; // set while a mod_main's _init runs (hook attribution)
+	bool startup_done_ = false;
 	std::unordered_map<vortarismodloader::ResourceIdKey, String, vortarismodloader::ResourceIdKeyHash>
 			explicit_paths_;
 	std::vector<ModRecord> mods_;

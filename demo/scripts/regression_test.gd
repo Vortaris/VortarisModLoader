@@ -7,12 +7,23 @@ extends SceneTree
 ## methods, not lambdas — a lambda held across engine shutdown crashes at exit.
 
 var _fired_ok := false
+var _test_event_fired := false
+var _mod_loaded_ids: Array = []
 
 func _on_db_entry_changed(_id: String) -> void:
 	_fired_ok = true
 
+
+func _on_test_event(_msg: String) -> void:
+	_test_event_fired = true
+
+
+func _on_mod_loaded(mod_id: String) -> void:
+	_mod_loaded_ids.append(mod_id)
+
 func _initialize() -> void:
 	var failed := false
+	VML.mod_loaded.connect(_on_mod_loaded)
 
 	# --- T0: singleton ---
 	if not VMLTestUtil.expect(Engine.has_singleton("VML"), "T0 VML singleton exists"):
@@ -139,6 +150,42 @@ func _initialize() -> void:
 		failed = true
 	if not VMLTestUtil.expect(VML.set_database_mode("data") and VML.get_database_mode() == "data",
 			"T23 set_database_mode back to data"):
+		failed = true
+
+	# --- M5: declarative hooks + mod_main entry ---
+	VML.finish_startup() # instantiates sample_mod's mod_main, which registers hooks
+
+	# T25: invoke chain rewrites the value and returns it.
+	var dmg = VML.invoke_hook("game:modify_damage", [10, "sword"], 10)
+	if not VMLTestUtil.expect_eq(dmg, 20.0, "T25 invoke_hook chain doubles damage"):
+		failed = true
+
+	# T26: check predicate intercepted by a mod handler.
+	if not VMLTestUtil.expect(VML.check_hook("game:can_open_door", ["gate"]) == false,
+			"T26 check_hook intercepted by mod"):
+		failed = true
+
+	# T27: registered hooks visible and attributed to the declaring mod.
+	var hooks = VML.list_hooks("game:")
+	if not VMLTestUtil.expect(hooks.has("game:modify_damage")
+			and hooks["game:modify_damage"]["mods"].has("mymod"),
+			"T27 hook registered and attributed to mymod"):
+		failed = true
+
+	# T24: emit broadcast reaches a handler, then remove_hook cleans up.
+	_test_event_fired = false
+	if not VMLTestUtil.expect(VML.add_hook("test:event", _on_test_event), "T24 add_hook"):
+		failed = true
+	VML.emit_hook("test:event", ["hello"])
+	if not VMLTestUtil.expect(_test_event_fired, "T24 emit_hook fires handler"):
+		failed = true
+	if not VMLTestUtil.expect(VML.remove_hook("test:event", _on_test_event), "T24 remove_hook"):
+		failed = true
+	if not VMLTestUtil.expect(VML.list_hooks("test:").is_empty(), "T24 hooks cleaned after remove"):
+		failed = true
+
+	# T28: mod_loaded fired when mod_main was instantiated.
+	if not VMLTestUtil.expect(_mod_loaded_ids.has("mymod"), "T28 mod_loaded fired for mymod"):
 		failed = true
 
 	quit(1 if failed else 0)
