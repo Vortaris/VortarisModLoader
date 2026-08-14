@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="VMLHotReloader" inherits="Node" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Polls watched content trees and forwards changes to VML.reload_resources().
+	</brief_description>
+	<description>
+		Created by VML.start_hot_reload() (game) or the EditorPlugin (editor). Polls
+		the base layer and every enabled mod's asset/data dirs every poll interval;
+		changed files are passed to VML.reload_resources().
+	</description>
+	<methods>
+		<method name="set_poll_interval">
+			<return type="void" />
+			<param index="0" name="seconds" type="float" />
+			<description>Set the poll interval (clamped to >= 0.05s).</description>
+		</method>
+		<method name="rescan">
+			<return type="void" />
+			<description>Re-seed the watcher from the current content roots.</description>
+		</method>
+	</methods>
+</class>

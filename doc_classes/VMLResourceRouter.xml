@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="VMLResourceRouter" inherits="ResourceFormatLoader" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		Native ResourceFormatLoader resolving `vml://namespace:path` to the winning provider.
+	</brief_description>
+	<description>
+		Registered automatically at engine start. Makes `load("vml://ns:path")` work,
+		including in exported builds (native loaders are registered at the C++ level).
+		Data ids (.json/.csv) are not Resources; read them with VML.get_data() instead.
+	</description>
+</class>

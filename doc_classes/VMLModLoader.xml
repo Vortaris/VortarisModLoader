@@ -1,0 +1,254 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="VMLModLoader" inherits="Node" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://raw.githubusercontent.com/godotengine/godot/master/doc/class.xsd">
+	<brief_description>
+		VortarisModLoader engine singleton (`VML`). Namespaced id registry, unified content database, declarative hooks, and runtime mod lifecycle.
+	</brief_description>
+	<description>
+		Registered at engine start (SCENE level) before any autoload, exposed to scripts as the `VML` singleton.
+
+		Content model: every piece of moddable content is addressed by a namespaced id `namespace:path` (Minecraft ResourceLocation style, e.g. `game:units/knight`). Mods stack above the base layer; a later-loaded mod wins when two providers claim the same id (override arbitration by priority, then explicit flag, then mod id).
+
+		Three layers:
+		- Routing: id → winning physical file ([method has], [method resolve], [method get_data], [method get_resource], [method instantiate]).
+		- Database: an in-memory repository that can preload every data id for O(1) lookups ([method preload_database], [method get_all], [method set_data], [method delete_data]).
+		- Hooks: declarative event points, each a namespaced id ([method add_hook], [method invoke_hook], [method emit_hook], [method check_hook]).
+
+		Mod lifecycle: mods are discovered under `res://mods-unpacked/` and `user://vml/mods/` (zip-installed). [method enable_mod]/[method disable_mod] toggle them at runtime; [method install_mod_from_zip] extracts a zip mod transactionally.
+	</description>
+	<methods>
+		<method name="is_initialized" qualifiers="const">
+			<return type="bool" />
+			<description>True once the routing layer and initial mod scan are built.</description>
+		</method>
+		<method name="has" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="id" type="String" />
+			<description>True if `id` resolves to any provider.</description>
+		</method>
+		<method name="resolve" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="id" type="String" />
+			<description>Physical path of the winning provider for `id` ("" if unknown).</description>
+		</method>
+		<method name="get_data" qualifiers="const">
+			<return type="Variant" />
+			<param index="0" name="id" type="String" />
+			<description>Load by id: .json/.csv parse to Dictionary/Array, everything else returns the Resource. Hit the in-memory database when it is populated.</description>
+		</method>
+		<method name="get_resource" qualifiers="const">
+			<return type="Resource" />
+			<param index="0" name="id" type="String" />
+			<description>Load a Resource by id (scenes, scripts, textures, fonts, audio).</description>
+		</method>
+		<method name="instantiate">
+			<return type="Variant" />
+			<param index="0" name="id" type="String" />
+			<description>Instantiate a PackedScene resolved by id, returning a Node.</description>
+		</method>
+		<method name="register">
+			<return type="bool" />
+			<param index="0" name="id" type="String" />
+			<param index="1" name="path" type="String" />
+			<description>Explicitly map `id` to `path`; beats implicit providers at equal priority.</description>
+		</method>
+		<method name="unregister">
+			<return type="bool" />
+			<param index="0" name="id" type="String" />
+			<description>Remove an explicit registration.</description>
+		</method>
+		<method name="list_ids" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="prefix" type="String" default="&quot;&quot;" />
+			<description>All ids as { namespace: PackedStringArray }, optionally filtered by prefix.</description>
+		</method>
+		<method name="list_namespaces" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>Every content namespace currently indexed.</description>
+		</method>
+		<method name="preload_database">
+			<return type="void" />
+			<description>Preload every data id (or all ids in "all" mode) into the in-memory database.</description>
+		</method>
+		<method name="reload_database">
+			<return type="void" />
+			<description>Clear and re-preload the database per the current mode.</description>
+		</method>
+		<method name="get_all" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="prefix" type="String" default="&quot;&quot;" />
+			<description>Loaded database entries as { canonical_id: value }.</description>
+		</method>
+		<method name="set_data">
+			<return type="bool" />
+			<param index="0" name="id" type="String" />
+			<param index="1" name="value" type="Variant" />
+			<description>Overwrite a database entry in place (emits [signal database_entry_changed]).</description>
+		</method>
+		<method name="delete_data">
+			<return type="bool" />
+			<param index="0" name="id" type="String" />
+			<description>Remove a database entry (lookups fall back to the file).</description>
+		</method>
+		<method name="get_database_mode" qualifiers="const">
+			<return type="String" />
+			<description>"data" (default), "all", or "off".</description>
+		</method>
+		<method name="set_database_mode">
+			<return type="bool" />
+			<param index="0" name="mode" type="String" />
+			<description>Switch database mode and reload.</description>
+		</method>
+		<method name="finish_startup">
+			<return type="void" />
+			<description>Instantiate every enabled mod's mod_main.gd. Call once from a bootstrap autoload's _ready.</description>
+		</method>
+		<method name="add_hook">
+			<return type="bool" />
+			<param index="0" name="hook_id" type="String" />
+			<param index="1" name="callable" type="Callable" />
+			<param index="2" name="priority" type="int" default="0" />
+			<description>Register a Callable on a hook point. Called from a mod_main it is attributed to that mod automatically.</description>
+		</method>
+		<method name="remove_hook">
+			<return type="bool" />
+			<param index="0" name="hook_id" type="String" />
+			<param index="1" name="callable" type="Callable" />
+			<description>Remove one handler.</description>
+		</method>
+		<method name="invoke_hook">
+			<return type="Variant" />
+			<param index="0" name="hook_id" type="String" />
+			<param index="1" name="args" type="Array" default="[]" />
+			<param index="2" name="default" type="Variant" default="null" />
+			<description>Pipeline: each handler receives (current, ...args) and returns the rewritten value; the last value is returned. Handlers run by priority.</description>
+		</method>
+		<method name="emit_hook">
+			<return type="void" />
+			<param index="0" name="hook_id" type="String" />
+			<param index="1" name="args" type="Array" default="[]" />
+			<description>Fire-and-forget broadcast to all handlers.</description>
+		</method>
+		<method name="check_hook">
+			<return type="bool" />
+			<param index="0" name="hook_id" type="String" />
+			<param index="1" name="args" type="Array" default="[]" />
+			<description>Predicate: true when no handler vetoes (any handler returning false short-circuits).</description>
+		</method>
+		<method name="register_hook_point">
+			<return type="bool" />
+			<param index="0" name="hook_id" type="String" />
+			<param index="1" name="description" type="String" />
+			<param index="2" name="arg_types" type="PackedStringArray" default="[]" />
+			<description>Declare a hook point for docs/editor discovery.</description>
+		</method>
+		<method name="list_hooks" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="prefix" type="String" default="&quot;&quot;" />
+			<description>Registered hooks as { hook_id: { count, mods } }.</description>
+		</method>
+		<method name="list_hook_points" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="prefix" type="String" default="&quot;&quot;" />
+			<description>Declared hook points as { hook_id: { description, arg_types } }.</description>
+		</method>
+		<method name="get_mod_ids" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>Every discovered mod id (valid or not).</description>
+		</method>
+		<method name="get_load_order" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>Dependency-sorted load order of valid mods (base excluded).</description>
+		</method>
+		<method name="get_mod_errors" qualifiers="const">
+			<return type="PackedStringArray" />
+			<param index="0" name="mod_id" type="String" />
+			<description>Human-readable errors for a mod (missing deps, cycle, bad manifest).</description>
+		</method>
+		<method name="is_mod_enabled" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="mod_id" type="String" />
+			<description>True when the mod's content is stacked in the registry.</description>
+		</method>
+		<method name="is_mod_loaded" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="mod_id" type="String" />
+			<description>True when the mod's mod_main is instantiated.</description>
+		</method>
+		<method name="enable_mod">
+			<return type="bool" />
+			<param index="0" name="mod_id" type="String" />
+			<description>Activate a mod: stack content, instantiate mod_main, register hooks.</description>
+		</method>
+		<method name="disable_mod">
+			<return type="bool" />
+			<param index="0" name="mod_id" type="String" />
+			<description>Deactivate a mod (refused while active mods depend on it).</description>
+		</method>
+		<method name="load_mod">
+			<return type="bool" />
+			<param index="0" name="mod_id" type="String" />
+			<description>Runtime load: alias of enable_mod.</description>
+		</method>
+		<method name="unload_mod">
+			<return type="bool" />
+			<param index="0" name="mod_id" type="String" />
+			<description>Runtime unload: alias of disable_mod.</description>
+		</method>
+		<method name="install_mod_from_zip">
+			<return type="int" />
+			<param index="0" name="zip_path" type="String" />
+			<description>Transactionally extract a zip mod into user://vml/mods and activate it. Returns an Error code.</description>
+		</method>
+		<method name="uninstall_mod">
+			<return type="int" />
+			<param index="0" name="mod_id" type="String" />
+			<description>Remove an installed (user://) mod entirely. Returns an Error code.</description>
+		</method>
+		<method name="reload_resources">
+			<return type="void" />
+			<param index="0" name="paths" type="PackedStringArray" />
+			<description>Dev hot reload: re-scan affected mods and refresh their database entries.</description>
+		</method>
+		<method name="get_content_roots" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>Directories the hot-reloader should watch (base layer + enabled mods).</description>
+		</method>
+		<method name="start_hot_reload">
+			<return type="void" />
+			<param index="0" name="interval" type="float" default="0.5" />
+			<description>Start a polling hot-reloader node (dev builds / editor).</description>
+		</method>
+		<method name="rescan">
+			<return type="void" />
+			<description>Full re-discovery and rebuild of the routing layer + database.</description>
+		</method>
+	</methods>
+	<signals>
+		<signal name="database_loaded">
+			<description>Emitted after a full database preload.</description>
+		</signal>
+		<signal name="database_entry_changed">
+			<param index="0" name="id" type="String" />
+			<description>A database entry was rewritten or removed.</description>
+		</signal>
+		<signal name="mod_loaded">
+			<param index="0" name="mod_id" type="String" />
+			<description>A mod's mod_main was instantiated.</description>
+		</signal>
+		<signal name="mod_unloaded">
+			<param index="0" name="mod_id" type="String" />
+			<description>A mod was unloaded.</description>
+		</signal>
+		<signal name="mod_enabled">
+			<param index="0" name="mod_id" type="String" />
+			<description>A mod was enabled.</description>
+		</signal>
+		<signal name="mod_disabled">
+			<param index="0" name="mod_id" type="String" />
+			<description>A mod was disabled.</description>
+		</signal>
+		<signal name="registry_rebuilt">
+			<description>The routing layer was rebuilt (rescan / hot reload).</description>
+		</signal>
+	</signals>
+</class>
