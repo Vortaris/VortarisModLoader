@@ -17,7 +17,12 @@
 - **原生 `vml://` 加载**：`load("vml://ns:path")`，C++ 注册的 ResourceFormatLoader 在导出版也可用。
 - **易上手 API**：`get`/`load`/`exists`/`get_mod_path` 等便捷别名，几十秒上手。
 - **id 元数据与预留**：`get_id_info`（完整状态）、`get_id_data_type`、`set_id_type`/`list_ids_by_type`（按类型过滤）、`reserve`/`unreserve`（预留命名）。
-- **EditorPlugin**：默认关闭，Editor > Tools > "VML Mods" 打开 dock（Mods/IDs/Hooks 三页，列宽可拖）+ 一键创建 mod 向导；每个操作在控制台打印反馈日志。
+- **ID 内容注册表**：可保存的 `id→资源` 路由（`user://vml/registry.json`，`finish_startup` 自动加载）；mod 提供同 id 即覆盖——`load("vml://main_menu_bg")` 自动切换背景。
+- **运行时重路由**：`reroute`/`clear_reroute` 游戏内热切换内容指向。
+- **mod 配置**：manifest 声明 `config_schema`，`get_config`/`set_config` 读写 `user://vml/configs/<mod_id>.json`。
+- **数据驱动场景**：`build_node(id)` 从 Dictionary 数据递归构建节点树（配合 ECS 数据驱动）。
+- **内容校验**：`validate()` 扫描所有数据，报告缺失的 id 引用。
+- **EditorPlugin**：右侧 "VML IDs" 面板（与 Inspector 并列）可视化编辑注册表 + Tools > "VML Mods" 打开 mod 管理（Mods/IDs/Hooks 三页，列宽可拖）+ 一键创建 mod 向导；操作在控制台打印反馈日志。
 - **多平台**：Windows / Linux / macOS，GitHub Actions 三平台构建与 tag 发布。
 
 ## 快速开始
@@ -64,6 +69,7 @@ var dmg: float = VML.invoke_hook("game:modify_damage", [10.0], 10.0)  # 钩子
 
 - [mod_format.md](docs/mod_format.md) — mod 包格式与 manifest 参考
 - [quickstart.md](docs/quickstart.md) — 快速上手
+- [registry.md](docs/registry.md) — ID 内容注册表（持久化 + 编辑器面板 + reroute + mod 配置）
 - [hooks.md](docs/hooks.md) — 声明式钩子指南
 - [database.md](docs/database.md) — 统一加载数据库
 - [dev_hot_reload.md](docs/dev_hot_reload.md) — 开发热重载

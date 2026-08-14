@@ -79,6 +79,23 @@ bool RegistryIndex::remove_provider(const ResourceId &p_id, const godot::String 
 	return removed;
 }
 
+bool RegistryIndex::remove_mod_provider(const ResourceId &p_id, const godot::String &p_mod_id) {
+	const auto it = map_.find(ResourceIdKey{ p_id.ns, p_id.path });
+	if (it == map_.end()) {
+		return false;
+	}
+	auto &providers = it->second.providers;
+	const size_t before = providers.size();
+	providers.erase(std::remove_if(providers.begin(), providers.end(),
+							[&](const ProviderEntry &p_e) { return p_e.mod_id == p_mod_id; }),
+			providers.end());
+	const bool removed = providers.size() != before;
+	if (providers.empty()) {
+		map_.erase(it);
+	}
+	return removed;
+}
+
 void RegistryIndex::set_mod_priority(const godot::String &p_mod_id, int p_priority) {
 	for (auto &kv : map_) {
 		for (auto &p : kv.second.providers) {

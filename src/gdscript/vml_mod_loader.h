@@ -96,6 +96,37 @@ public:
 	/// Coarse data category of the resolved file: data/scene/script/image/audio/font/resource.
 	String get_id_data_type(const String &p_id) const;
 
+	// --- persisted content registry (0.2.0) ----------------------------
+	/// Declare an id in the persisted content registry (base-layer explicit route;
+	/// mods override it). Saved with [method save_registry].
+	bool set_registry_entry(const String &p_id, const String &p_path, const String &p_type = "",
+			const String &p_description = "");
+	Dictionary get_registry_entry(const String &p_id) const;
+	Dictionary get_registry() const;
+	bool remove_registry_entry(const String &p_id);
+	Error save_registry(const String &p_path = "user://vml/registry.json");
+	Error load_registry(const String &p_path = "user://vml/registry.json");
+
+	// --- runtime reroute (0.2.0) ---------------------------------------
+	/// Temporarily force an id to a path at runtime (highest priority, not persisted).
+	bool reroute(const String &p_id, const String &p_path);
+	bool clear_reroute(const String &p_id);
+
+	// --- per-mod config (0.2.0) ----------------------------------------
+	/// Read a mod's config from user://vml/configs/<mod_id>.json ({} if unset).
+	Dictionary get_config(const String &p_mod_id) const;
+	bool set_config(const String &p_mod_id, const Dictionary &p_values);
+	/// The mod's declared config_schema (from manifest extra.godot.config_schema).
+	Dictionary get_config_schema(const String &p_mod_id) const;
+
+	// --- data-driven scene building (0.2.0) ----------------------------
+	/// Build a Node tree from a Dictionary at id: {type,name,properties,children}.
+	Node *build_node(const String &p_id);
+
+	// --- validation (0.2.0) --------------------------------------------
+	/// Scan all loaded data for id references and report missing ones.
+	Dictionary validate() const;
+
 	// --- lifecycle / mod_main ------------------------------------------
 	/// Instantiate every enabled mod's mod_main.gd (the game calls this from a
 	/// bootstrap autoload's _ready). mod_main must register hooks/config in _init.
@@ -184,7 +215,10 @@ private:
 	String data_type_for(const String &p_path) const;
 	/// Load the value for a provider: json/csv parse to data, everything else is a Resource.
 	Variant load_entry_value(const vortarismodloader::ProviderEntry &p_e) const;
+	/// Reload one id into the database cache (used after reroute/clear_reroute).
+	void refresh_database_entry(const vortarismodloader::ResourceId &p_id);
 	String owning_mod(const String &p_path) const;
+	Node *build_node_from_dict(const Dictionary &p_spec, const String &p_source_id);
 	ModRecord *find_mod(const String &p_mod_id);
 	const ModRecord *find_mod(const String &p_mod_id) const;
 	void scan_mod_content(ModRecord &p_rec);
@@ -212,9 +246,16 @@ private:
 			explicit_paths_;
 	std::vector<ModRecord> mods_;
 	std::vector<String> load_order_;
+	struct RegistryEntry {
+		String path;
+		String type;
+		String description;
+	};
 	std::vector<vortarismodloader::ResourceId> pending_ids_;
 	std::vector<vortarismodloader::ResourceId> reserved_ids_;
+	std::vector<vortarismodloader::ResourceId> rerouted_ids_;
 	std::unordered_map<vortarismodloader::ResourceIdKey, String, vortarismodloader::ResourceIdKeyHash> id_types_;
+	std::unordered_map<vortarismodloader::ResourceIdKey, RegistryEntry, vortarismodloader::ResourceIdKeyHash> registry_map_;
 	size_t preload_index_ = 0;
 	bool preload_in_flight_ = false;
 	VMLHotReloader *hot_reloader_ = nullptr;

@@ -94,6 +94,15 @@ Two layers, mirroring VortarisCSV/VortarisECS: pure C++ core (`src/core/`,
 - **Logging**: mod actions always `print_line` ("VML: mod 'x' enabled/disabled/
   installed/uninstalled"); extra detail is gated behind
   `vortarismodloader/verbose` (read once per call via `log_verbose`).
+- **Persisted content registry (0.2.0)**: `registry_map_` holds `id → {path,type,
+  description}`; entries register as `__registry__` providers at priority 0 so mods
+  override them. `finish_startup()` loads `res://registry.json` then
+  `user://vml/registry.json`. `reroute` registers `__reroute__` at INT32_MAX and
+  calls `refresh_database_entry` (erase + reload) so the DB cache follows.
+- **Editor plugin (0.2.0)**: two panels — right-dock `VML IDs` (id_editor_panel.gd,
+  next to the Inspector) edits the registry; Tools-menu `VML Mods` manages mods.
+  Note `build_node` instantiates via ClassDB and `validate` scans DB values for
+  dotted-id strings that resolve to nothing.
 - **Hooks are declarative + namespaced, never source rewriting.** The game calls
   `invoke_hook/emit_hook/check_hook` at instrumented points; mods register
   `Callable`s with `add_hook`. Handler signatures: invoke `func(current, ...args)`,

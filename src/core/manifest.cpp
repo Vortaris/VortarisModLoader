@@ -75,6 +75,9 @@ bool ManifestParser::load(const godot::String &p_json_path, ModManifest &p_out) 
 	p_out.icon_path = dict_str(godot_block, "icon");
 	dict_str_array(godot_block, "asset_dirs", p_out.asset_dirs);
 	dict_str_array(godot_block, "data_dirs", p_out.data_dirs);
+	if (godot_block.has("config_schema") && godot_block["config_schema"].get_type() == godot::Variant::DICTIONARY) {
+		p_out.config_schema = godot_block["config_schema"];
+	}
 
 	// Defaults.
 	if (p_out.main_script.is_empty()) {

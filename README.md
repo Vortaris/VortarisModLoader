@@ -33,9 +33,17 @@ all data) and traditional games alike (texture/model/scene overrides).
 - **Beginner-friendly API**: `get`/`load`/`exists`/`get_mod_path` sugar.
 - **Id metadata & reservation**: `get_id_info` (full status), `get_id_data_type`,
   `set_id_type`/`list_ids_by_type` (filter by type), `reserve`/`unreserve`.
-- **EditorPlugin**: off by default — open via Editor > Tools > "VML Mods"
-  (Mods/IDs/Hooks tabs, resizable columns) + one-click mod skeleton wizard;
-  every action logs feedback to the console.
+- **Persisted content registry**: a saveable `id → resource` route table
+  (`user://vml/registry.json`, auto-loaded at `finish_startup`); a mod shipping
+  the same id overrides it — `load("vml://main_menu_bg")` swaps the background.
+- **Runtime reroute**: `reroute`/`clear_reroute` hot-swap content at runtime.
+- **Per-mod config**: `config_schema` in the manifest, `get_config`/`set_config`
+  to `user://vml/configs/<mod_id>.json`.
+- **Data-driven scenes**: `build_node(id)` builds a Node tree from Dictionary data.
+- **Validation**: `validate()` scans all data and reports missing id references.
+- **EditorPlugin**: right-dock "VML IDs" panel (next to the Inspector) to edit the
+  registry visually + Tools > "VML Mods" for mod management (Mods/IDs/Hooks tabs,
+  resizable columns) + one-click mod skeleton wizard; every action logs to console.
 - **Cross-platform**: Windows / Linux / macOS, GitHub Actions builds + tag release.
 
 ## Quick start
@@ -84,6 +92,7 @@ Put base content under `res://assets/game/` and `res://data/game/` (namespace
 
 - [mod_format.md](docs/mod_format.md) — mod package format & manifest reference
 - [quickstart.md](docs/quickstart.md)
+- [registry.md](docs/registry.md) — ID content registry (persistence + editor panel + reroute + mod config)
 - [hooks.md](docs/hooks.md) — declarative hooks guide
 - [database.md](docs/database.md) — unified content database
 - [dev_hot_reload.md](docs/dev_hot_reload.md)

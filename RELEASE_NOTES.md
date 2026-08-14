@@ -1,8 +1,45 @@
 # Release Notes
 
-## 0.1.0
+## 0.2.0
 
-First public release of VortarisModLoader.
+Data/content authoring layer. One addon zip now contains **all platforms**.
+
+### ID content registry (persisted)
+
+- Saveable `id → resource` route table (`user://vml/registry.json`; `res://registry.json`
+  for built-in defaults). Auto-loaded at `finish_startup`.
+- API: `set_registry_entry` / `get_registry_entry` / `get_registry` /
+  `remove_registry_entry` / `save_registry` / `load_registry`.
+- A mod shipping the same id overrides the registry route (override arbitration).
+
+### Runtime reroute
+
+- `reroute(id, path)` / `clear_reroute(id)` — highest-priority, non-persisted
+  hot-swap of an id's target (theme/day-night switches, A/B testing).
+
+### Per-mod config
+
+- `config_schema` in `manifest.json` (`extra.godot.config_schema`);
+  `get_config` / `set_config` / `get_config_schema` with `user://vml/configs/<id>.json`.
+
+### Data-driven scenes & validation
+
+- `build_node(id)` builds a Node tree from a Dictionary (`type/name/properties/children`).
+- `validate()` scans all loaded data and reports missing id references.
+
+### Editor
+
+- **"VML IDs"** panel in the **right dock, next to the Inspector**: browse/create/
+  edit/delete registry entries, save to disk. (Mod management stays under
+  Tools > "VML Mods".)
+
+### Packaging
+
+- Releases ship **one** zip containing Windows + Linux + macOS binaries.
+
+## 0.1.2
+
+Code-review-hardened maintenance release. One addon zip, all platforms.
 
 ### Core
 

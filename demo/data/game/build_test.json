@@ -1,0 +1,15 @@
+{
+	"id": "game:build_test",
+	"type": "Node2D",
+	"name": "Root",
+	"properties": {
+		"position": { "x": 10, "y": 20 }
+	},
+	"children": [
+		{
+			"type": "Label",
+			"name": "Title",
+			"properties": { "text": "Hello VML" }
+		}
+	]
+}

@@ -2,6 +2,7 @@
 
 #include <vector>
 
+#include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/string.hpp>
 
 namespace vortarismodloader {
@@ -17,6 +18,7 @@ struct ModManifest {
 	godot::String website_url;
 	godot::String main_script; // "mod_main.gd" (relative to mod root)
 	godot::String icon_path; // "icon.png"
+	godot::Dictionary config_schema; // extra.godot.config_schema (JSON-Schema style)
 
 	// "lib_mod" or "lib_mod@>=1.0"
 	std::vector<godot::String> deps;

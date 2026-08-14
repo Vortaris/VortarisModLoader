@@ -1,6 +1,7 @@
 #include "vml_mod_loader.h"
 
 #include <algorithm>
+#include <functional>
 
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/engine.hpp>
@@ -360,6 +361,248 @@ bool VMLModLoader::is_reserved(const vortarismodloader::ResourceId &p_id) const 
 		}
 	}
 	return false;
+}
+
+bool VMLModLoader::set_registry_entry(const String &p_id, const String &p_path, const String &p_type,
+		const String &p_description) {
+	vortarismodloader::ResourceId rid;
+	if (!vortarismodloader::ResourceId::parse(p_id, rid) || p_path.is_empty()) {
+		return false;
+	}
+	registry_map_[{ rid.ns, rid.path }] = RegistryEntry{ p_path, p_type, p_description };
+	// Base-layer explicit route: priority 0, so any mod provider (priority > 0) overrides it.
+	registry_.add(rid, vortarismodloader::ProviderEntry{ "__registry__", p_path, 0, true });
+	log_verbose(String("registry entry: ") + p_id + String(" -> ") + p_path);
+	return true;
+}
+
+Dictionary VMLModLoader::get_registry_entry(const String &p_id) const {
+	Dictionary out;
+	vortarismodloader::ResourceId rid;
+	if (!vortarismodloader::ResourceId::parse(p_id, rid)) {
+		return out;
+	}
+	const auto it = registry_map_.find({ rid.ns, rid.path });
+	if (it != registry_map_.end()) {
+		out["path"] = it->second.path;
+		out["type"] = it->second.type;
+		out["description"] = it->second.description;
+	}
+	return out;
+}
+
+Dictionary VMLModLoader::get_registry() const {
+	Dictionary out;
+	for (const auto &kv : registry_map_) {
+		const String canonical = String(kv.first.ns) + String(":") + String(kv.first.path);
+		Dictionary entry;
+		entry["path"] = kv.second.path;
+		entry["type"] = kv.second.type;
+		entry["description"] = kv.second.description;
+		out[canonical] = entry;
+	}
+	return out;
+}
+
+bool VMLModLoader::remove_registry_entry(const String &p_id) {
+	vortarismodloader::ResourceId rid;
+	if (!vortarismodloader::ResourceId::parse(p_id, rid)) {
+		return false;
+	}
+	const auto it = registry_map_.find({ rid.ns, rid.path });
+	if (it == registry_map_.end()) {
+		return false;
+	}
+	registry_.remove_provider(rid, "__registry__", it->second.path);
+	registry_map_.erase(it);
+	return true;
+}
+
+Error VMLModLoader::save_registry(const String &p_path) {
+	Dictionary data;
+	for (const auto &kv : registry_map_) {
+		const String canonical = String(kv.first.ns) + String(":") + String(kv.first.path);
+		Dictionary entry;
+		entry["path"] = kv.second.path;
+		entry["type"] = kv.second.type;
+		entry["description"] = kv.second.description;
+		data[canonical] = entry;
+	}
+	DirAccess::make_dir_recursive_absolute(p_path.get_base_dir());
+	Ref<FileAccess> f = FileAccess::open(p_path, FileAccess::WRITE);
+	if (f.is_null()) {
+		return ERR_CANT_OPEN;
+	}
+	f->store_string(JSON::stringify(data, "  "));
+	f->close();
+	print_line(String("VML: registry saved (") + String::num_int64((int64_t)registry_map_.size()) +
+			String(" entries) -> ") + p_path);
+	return OK;
+}
+
+Error VMLModLoader::load_registry(const String &p_path) {
+	Ref<FileAccess> f = FileAccess::open(p_path, FileAccess::READ);
+	if (f.is_null()) {
+		return ERR_FILE_NOT_FOUND;
+	}
+	const Variant parsed = JSON::parse_string(f->get_as_text());
+	if (parsed.get_type() != Variant::DICTIONARY) {
+		return ERR_PARSE_ERROR;
+	}
+	const Dictionary data = parsed;
+	for (const Variant &k : data.keys()) {
+		if (data[k].get_type() != Variant::DICTIONARY) {
+			continue;
+		}
+		const Dictionary entry = data[k];
+		const String p = entry.get("path", String());
+		if (p.is_empty()) {
+			continue;
+		}
+		set_registry_entry(String(k), p, entry.get("type", String()), entry.get("description", String()));
+	}
+	print_line(String("VML: registry loaded from ") + p_path);
+	return OK;
+}
+
+bool VMLModLoader::reroute(const String &p_id, const String &p_path) {
+	vortarismodloader::ResourceId rid;
+	if (!vortarismodloader::ResourceId::parse(p_id, rid)) {
+		return false;
+	}
+	registry_.add(rid, vortarismodloader::ProviderEntry{ "__reroute__", p_path, INT32_MAX, true });
+	if (std::find(rerouted_ids_.begin(), rerouted_ids_.end(), rid) == rerouted_ids_.end()) {
+		rerouted_ids_.push_back(rid);
+	}
+	refresh_database_entry(rid);
+	emit_signal("database_entry_changed", p_id);
+	return true;
+}
+
+bool VMLModLoader::clear_reroute(const String &p_id) {
+	vortarismodloader::ResourceId rid;
+	if (!vortarismodloader::ResourceId::parse(p_id, rid)) {
+		return false;
+	}
+	const bool ok = registry_.remove_mod_provider(rid, "__reroute__");
+	rerouted_ids_.erase(std::remove_if(rerouted_ids_.begin(), rerouted_ids_.end(),
+									[&](const vortarismodloader::ResourceId &r) { return r == rid; }),
+			rerouted_ids_.end());
+	refresh_database_entry(rid);
+	emit_signal("database_entry_changed", p_id);
+	return ok;
+}
+
+Dictionary VMLModLoader::get_config(const String &p_mod_id) const {
+	Ref<FileAccess> f = FileAccess::open(String("user://vml/configs/") + p_mod_id + String(".json"), FileAccess::READ);
+	if (f.is_null()) {
+		return Dictionary();
+	}
+	const Variant parsed = JSON::parse_string(f->get_as_text());
+	return parsed.get_type() == Variant::DICTIONARY ? Dictionary(parsed) : Dictionary();
+}
+
+bool VMLModLoader::set_config(const String &p_mod_id, const Dictionary &p_values) {
+	DirAccess::make_dir_recursive_absolute("user://vml/configs");
+	Ref<FileAccess> f = FileAccess::open(String("user://vml/configs/") + p_mod_id + String(".json"), FileAccess::WRITE);
+	if (f.is_null()) {
+		return false;
+	}
+	f->store_string(JSON::stringify(p_values, "  "));
+	f->close();
+	return true;
+}
+
+Dictionary VMLModLoader::get_config_schema(const String &p_mod_id) const {
+	const ModRecord *rec = find_mod(p_mod_id);
+	return rec != nullptr ? rec->manifest.config_schema : Dictionary();
+}
+
+Node *VMLModLoader::build_node(const String &p_id) {
+	const Variant data = get_data(p_id);
+	if (data.get_type() != Variant::DICTIONARY) {
+		ERR_PRINT(String("VML: build_node requires a Dictionary at id '") + p_id + String("'"));
+		return nullptr;
+	}
+	return build_node_from_dict(Dictionary(data), p_id);
+}
+
+Node *VMLModLoader::build_node_from_dict(const Dictionary &p_spec, const String &p_source_id) {
+	const String type = p_spec.get("type", "Node");
+	const String node_name = p_spec.get("name", type);
+	Node *node = Object::cast_to<Node>(ClassDB::instantiate(StringName(type)));
+	if (node == nullptr) {
+		node = memnew(Node);
+	}
+	node->set_name(node_name);
+	const Dictionary props = p_spec.get("properties", Dictionary());
+	for (const Variant &k : props.keys()) {
+		node->set(StringName(String(k)), props[k]);
+	}
+	const Array children = p_spec.get("children", Array());
+	for (int i = 0; i < children.size(); i++) {
+		if (children[i].get_type() == Variant::DICTIONARY) {
+			Node *child = build_node_from_dict(children[i], p_source_id);
+			if (child != nullptr) {
+				node->add_child(child);
+			}
+		}
+	}
+	return node;
+}
+
+Dictionary VMLModLoader::validate() const {
+	Array missing;
+	int checked = 0;
+	std::function<void(const Variant &)> scan = [&](const Variant &v) {
+		if (v.get_type() == Variant::STRING) {
+			vortarismodloader::ResourceId rid;
+			const String s = v;
+			if (vortarismodloader::ResourceId::parse(s, rid) && !has(s)) {
+				missing.append(s);
+			}
+			checked++;
+		} else if (v.get_type() == Variant::DICTIONARY) {
+			for (const Variant &k : Dictionary(v).keys()) {
+				scan(Dictionary(v)[k]);
+			}
+		} else if (v.get_type() == Variant::ARRAY) {
+			for (const Variant &e : Array(v)) {
+				scan(e);
+			}
+		}
+	};
+	for (const vortarismodloader::ResourceId &id : database_.loaded_ids()) {
+		Variant val;
+		if (database_.get(id, val)) {
+			scan(val);
+		}
+	}
+	Dictionary out;
+	out["valid"] = missing.is_empty();
+	out["checked"] = checked;
+	out["missing"] = missing;
+	return out;
+}
+
+void VMLModLoader::refresh_database_entry(const vortarismodloader::ResourceId &p_id) {
+	database_.erase(p_id);
+	if (database_mode_ == DatabaseMode::OFF) {
+		return;
+	}
+	const vortarismodloader::ProviderEntry *e = registry_.lookup(p_id);
+	if (e == nullptr) {
+		return;
+	}
+	const String ext = e->physical_path.get_extension().to_lower();
+	const bool is_data = is_data_extension(ext);
+	if (database_mode_ == DatabaseMode::DATA && !is_data) {
+		return;
+	}
+	const Variant val = load_entry_value(*e);
+	if (val.get_type() != Variant::NIL) {
+		database_.set(p_id, val, e->physical_path, e->mod_id);
+	}
 }
 
 Variant VMLModLoader::load_entry_value(const vortarismodloader::ProviderEntry &p_e) const {
@@ -992,6 +1235,9 @@ void VMLModLoader::finish_startup() {
 		return;
 	}
 	startup_done_ = true;
+	// Load the persisted content registry: built-in res:// first, then user overrides.
+	load_registry("res://registry.json");
+	load_registry("user://vml/registry.json");
 	for (ModRecord &rec : mods_) {
 		if (rec.enabled) {
 			instantiate_mod_main(rec);
@@ -1124,6 +1370,24 @@ void VMLModLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("reserve", "id"), &VMLModLoader::reserve);
 	ClassDB::bind_method(D_METHOD("unreserve", "id"), &VMLModLoader::unreserve);
 	ClassDB::bind_method(D_METHOD("get_id_data_type", "id"), &VMLModLoader::get_id_data_type);
+
+	ClassDB::bind_method(D_METHOD("set_registry_entry", "id", "path", "type", "description"),
+			&VMLModLoader::set_registry_entry, DEFVAL(""), DEFVAL(""));
+	ClassDB::bind_method(D_METHOD("get_registry_entry", "id"), &VMLModLoader::get_registry_entry);
+	ClassDB::bind_method(D_METHOD("get_registry"), &VMLModLoader::get_registry);
+	ClassDB::bind_method(D_METHOD("remove_registry_entry", "id"), &VMLModLoader::remove_registry_entry);
+	ClassDB::bind_method(D_METHOD("save_registry", "path"), &VMLModLoader::save_registry,
+			DEFVAL("user://vml/registry.json"));
+	ClassDB::bind_method(D_METHOD("load_registry", "path"), &VMLModLoader::load_registry,
+			DEFVAL("user://vml/registry.json"));
+	ClassDB::bind_method(D_METHOD("reroute", "id", "path"), &VMLModLoader::reroute);
+	ClassDB::bind_method(D_METHOD("clear_reroute", "id"), &VMLModLoader::clear_reroute);
+	ClassDB::bind_method(D_METHOD("get_config", "mod_id"), &VMLModLoader::get_config);
+	ClassDB::bind_method(D_METHOD("set_config", "mod_id", "values"), &VMLModLoader::set_config);
+	ClassDB::bind_method(D_METHOD("get_config_schema", "mod_id"), &VMLModLoader::get_config_schema);
+	ClassDB::bind_method(D_METHOD("build_node", "id"), &VMLModLoader::build_node);
+	ClassDB::bind_method(D_METHOD("validate"), &VMLModLoader::validate);
+
 	ClassDB::bind_method(D_METHOD("preload_database_async"), &VMLModLoader::preload_database_async);
 	ClassDB::bind_method(D_METHOD("_process_preload_batch"), &VMLModLoader::_process_preload_batch);
 

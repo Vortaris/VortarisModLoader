@@ -28,6 +28,8 @@ public:
 	bool remove_mod(const godot::String &p_mod_id);
 	/// Remove one specific provider (used by unregister).
 	bool remove_provider(const ResourceId &p_id, const godot::String &p_mod_id, const godot::String &p_physical_path);
+	/// Remove every provider of a mod for one id (used by clear_reroute).
+	bool remove_mod_provider(const ResourceId &p_id, const godot::String &p_mod_id);
 	/// Re-assign priority of all providers from one mod (reorder pass).
 	void set_mod_priority(const godot::String &p_mod_id, int p_priority);
 	bool has(const ResourceId &p_id) const;

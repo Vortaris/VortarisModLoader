@@ -401,6 +401,100 @@
 
 			 完整重新发现并重建路由层 + 数据库。</description>
 		</method>
+		<method name="set_registry_entry">
+			<return type="bool" />
+			<param index="0" name="id" type="String" />
+			<param index="1" name="path" type="String" />
+			<param index="2" name="type" type="String" default="&quot;&quot;" />
+			<param index="3" name="description" type="String" default="&quot;&quot;" />
+			<description>Declare an id in the persisted content registry (base-layer route; mods override it). Save with [method save_registry]; loaded automatically at [method finish_startup].
+
+			 在持久化内容注册表中声明一个 id（基础层路由；mod 可覆盖）。用 [method save_registry] 保存；[method finish_startup] 自动加载。</description>
+		</method>
+		<method name="get_registry_entry" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="id" type="String" />
+			<description>One registry entry as { path, type, description }.
+
+			 单条注册表条目 { path, type, description }。</description>
+		</method>
+		<method name="get_registry" qualifiers="const">
+			<return type="Dictionary" />
+			<description>All registry entries as { id: { path, type, description } }.
+
+			 全部注册表条目 { id: { path, type, description } }。</description>
+		</method>
+		<method name="remove_registry_entry">
+			<return type="bool" />
+			<param index="0" name="id" type="String" />
+			<description>Remove a registry entry.
+
+			 移除一条注册表条目。</description>
+		</method>
+		<method name="save_registry">
+			<return type="int" />
+			<param index="0" name="path" type="String" default="&quot;user://vml/registry.json&quot;" />
+			<description>Persist the registry to JSON. Returns an Error code.
+
+			 把注册表持久化为 JSON。返回 Error 码。</description>
+		</method>
+		<method name="load_registry">
+			<return type="int" />
+			<param index="0" name="path" type="String" default="&quot;user://vml/registry.json&quot;" />
+			<description>Load registry entries from JSON. Returns an Error code.
+
+			 从 JSON 加载注册表条目。返回 Error 码。</description>
+		</method>
+		<method name="reroute">
+			<return type="bool" />
+			<param index="0" name="id" type="String" />
+			<param index="1" name="path" type="String" />
+			<description>Temporarily force an id to a path at runtime (highest priority, not persisted). Use [method clear_reroute] to undo.
+
+			 运行时临时把 id 强制指向某路径（最高优先级、不持久化）。用 [method clear_reroute] 撤销。</description>
+		</method>
+		<method name="clear_reroute">
+			<return type="bool" />
+			<param index="0" name="id" type="String" />
+			<description>Remove a runtime reroute.
+
+			 移除一条运行时重路由。</description>
+		</method>
+		<method name="get_config" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="mod_id" type="String" />
+			<description>Read a mod's config from user://vml/configs/&lt;mod_id&gt;.json ({} if unset).
+
+			 从 user://vml/configs/&lt;mod_id&gt;.json 读取 mod 配置（未设置则 {}）。</description>
+		</method>
+		<method name="set_config">
+			<return type="bool" />
+			<param index="0" name="mod_id" type="String" />
+			<param index="1" name="values" type="Dictionary" />
+			<description>Persist a mod's config.
+
+			 持久化 mod 配置。</description>
+		</method>
+		<method name="get_config_schema" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="mod_id" type="String" />
+			<description>The mod's declared config_schema (manifest extra.godot.config_schema).
+
+			 mod 声明的 config_schema（manifest extra.godot.config_schema）。</description>
+		</method>
+		<method name="build_node">
+			<return type="Node" />
+			<param index="0" name="id" type="String" />
+			<description>Build a Node tree from a Dictionary at id: { type, name, properties, children }.
+
+			 按 id 处的 Dictionary 构建节点树：{ type, name, properties, children }。</description>
+		</method>
+		<method name="validate" qualifiers="const">
+			<return type="Dictionary" />
+			<description>Scan all loaded data for id references and report missing ones: { valid, checked, missing }.
+
+			 扫描所有已加载数据中的 id 引用并报告缺失：{ valid, checked, missing }。</description>
+		</method>
 	</methods>
 	<signals>
 		<signal name="database_loaded">

@@ -396,4 +396,75 @@ func _initialize() -> void:
 	VML.reload_resources([hr_path])
 	await create_timer(0.2).timeout
 
+	# --- 0.2.0: persisted content registry ---
+	if not VMLTestUtil.expect(VML.set_registry_entry("mygame:mainmenu.bg",
+			"res://assets/game/icons/peasant.png", "image", "menu background"),
+			"T35 set_registry_entry"):
+		failed = true
+	var rentry: Dictionary = VML.get_registry_entry("mygame:mainmenu.bg")
+	if not VMLTestUtil.expect_eq(rentry.get("type"), "image", "T35 get_registry_entry type"):
+		failed = true
+	if not VMLTestUtil.expect(VML.has("mygame:mainmenu.bg"), "T35 registry entry resolvable"):
+		failed = true
+	if not VMLTestUtil.expect(VML.save_registry("user://vml/test_registry.json") == OK,
+			"T35 save_registry"):
+		failed = true
+	if not VMLTestUtil.expect(VML.remove_registry_entry("mygame:mainmenu.bg"), "T35 remove_registry_entry"):
+		failed = true
+	if not VMLTestUtil.expect(VML.load_registry("user://vml/test_registry.json") == OK,
+			"T35 load_registry"):
+		failed = true
+	if not VMLTestUtil.expect(VML.has("mygame:mainmenu.bg"), "T35 registry reloaded"):
+		failed = true
+	VML.remove_registry_entry("mygame:mainmenu.bg")
+	DirAccess.remove_absolute("user://vml/test_registry.json")
+
+	# --- 0.2.0: runtime reroute ---
+	VML.register("mygame:switcher", "res://data/game/units/peasant.json")
+	if not VMLTestUtil.expect_eq((VML.get("mygame:switcher") as Dictionary).get("name"),
+			"Peasant", "T36 base route"):
+		failed = true
+	if not VMLTestUtil.expect(VML.reroute("mygame:switcher",
+			"res://mods-unpacked/sample_mod/data/game/units/knight.json"), "T36 reroute"):
+		failed = true
+	if not VMLTestUtil.expect_eq((VML.get("mygame:switcher") as Dictionary).get("name"),
+			"Knight", "T36 reroute applied"):
+		failed = true
+	if not VMLTestUtil.expect(VML.clear_reroute("mygame:switcher"), "T36 clear_reroute"):
+		failed = true
+	if not VMLTestUtil.expect_eq((VML.get("mygame:switcher") as Dictionary).get("name"),
+			"Peasant", "T36 reroute cleared"):
+		failed = true
+	VML.unregister("mygame:switcher")
+
+	# --- 0.2.0: per-mod config ---
+	if not VMLTestUtil.expect(VML.set_config("mymod", {"speed": 2.0}), "T37 set_config"):
+		failed = true
+	var cfg: Dictionary = VML.get_config("mymod")
+	if not VMLTestUtil.expect_eq(cfg.get("speed"), 2.0, "T37 get_config"):
+		failed = true
+
+	# --- 0.2.0: data-driven scene building ---
+	var built: Node = VML.build_node("game:build_test")
+	if not VMLTestUtil.expect(built != null and built is Node2D, "T38 build_node root Node2D"):
+		failed = true
+	if built != null:
+		if not VMLTestUtil.expect(built.get_child_count() == 1 and built.get_child(0) is Label,
+				"T38 build_node child Label"):
+			failed = true
+		built.free()
+
+	# --- 0.2.0: id-reference validation ---
+	var vres: Dictionary = VML.validate()
+	if not VMLTestUtil.expect(vres.get("valid") == true, "T39 validate finds no missing ids"):
+		failed = true
+
+	# --- 0.2.0: ID editor panel instantiates ---
+	var id_script = load("res://addons/vortarismodloader/id_editor_panel.gd")
+	var id_panel = id_script.new() if id_script else null
+	if not VMLTestUtil.expect(id_panel != null, "T40 id_editor_panel instantiates"):
+		failed = true
+	if id_panel:
+		id_panel.free()
+
 	quit(1 if failed else 0)
