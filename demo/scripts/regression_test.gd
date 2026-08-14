@@ -9,6 +9,7 @@ extends SceneTree
 var _fired_ok := false
 var _test_event_fired := false
 var _mod_loaded_ids: Array = []
+var _mod_unloaded := false
 
 func _on_db_entry_changed(_id: String) -> void:
 	_fired_ok = true
@@ -21,9 +22,17 @@ func _on_test_event(_msg: String) -> void:
 func _on_mod_loaded(mod_id: String) -> void:
 	_mod_loaded_ids.append(mod_id)
 
+
+func _on_mod_unloaded(_mod_id: String) -> void:
+	_mod_unloaded = true
+
 func _initialize() -> void:
 	var failed := false
 	VML.mod_loaded.connect(_on_mod_loaded)
+
+	# Clean up any zip mod left over from a previous run (user:// persists).
+	if VML.get_mod_ids().has("archerpack"):
+		VML.uninstall_mod("archerpack")
 
 	# --- T0: singleton ---
 	if not VMLTestUtil.expect(Engine.has_singleton("VML"), "T0 VML singleton exists"):
@@ -186,6 +195,54 @@ func _initialize() -> void:
 
 	# T28: mod_loaded fired when mod_main was instantiated.
 	if not VMLTestUtil.expect(_mod_loaded_ids.has("mymod"), "T28 mod_loaded fired for mymod"):
+		failed = true
+
+	# --- M6: mod lifecycle (zip install + dynamic load/unload) ---
+	# T11: install a zip mod at runtime (extracted into user://vml/mods).
+	if not VMLTestUtil.expect(VML.install_mod_from_zip("res://mods/archer_pack.zip") == OK,
+			"T11 install_mod_from_zip returns OK"):
+		failed = true
+	if not VMLTestUtil.expect(VML.has("archerpack:units/ranger"), "T11 zip mod ids indexed"):
+		failed = true
+	if not VMLTestUtil.expect(VML.get_mod_ids().has("archerpack"), "T11 zip mod discovered"):
+		failed = true
+
+	# T15: enable/disable state transitions.
+	if not VMLTestUtil.expect(VML.disable_mod("mymod"), "T15 disable_mod"):
+		failed = true
+	if not VMLTestUtil.expect(not VML.has("mymod:units/archer"), "T15 disabled content removed"):
+		failed = true
+	if not VMLTestUtil.expect(VML.enable_mod("mymod"), "T15 re-enable_mod"):
+		failed = true
+	if not VMLTestUtil.expect(VML.has("mymod:units/archer"), "T15 re-enabled content back"):
+		failed = true
+
+	# T12: dynamic unload removes ids (base fallback), reload restores.
+	if not VMLTestUtil.expect(VML.unload_mod("mymod"), "T12 unload_mod"):
+		failed = true
+	if not VMLTestUtil.expect(not VML.has("mymod:units/archer"), "T12 unload removes ids"):
+		failed = true
+	if not VMLTestUtil.expect(VML.load_mod("mymod"), "T12 load_mod"):
+		failed = true
+	if not VMLTestUtil.expect(VML.has("mymod:units/archer"), "T12 reload restores ids"):
+		failed = true
+
+	# T17: mod_main lifecycle (loaded/unloaded signals).
+	_mod_unloaded = false
+	VML.mod_unloaded.connect(_on_mod_unloaded)
+	VML.unload_mod("mymod")
+	if not VMLTestUtil.expect(_mod_unloaded, "T17 mod_unloaded signal"):
+		failed = true
+	VML.load_mod("mymod")
+	if not VMLTestUtil.expect(VML.is_mod_loaded("mymod"), "T17 load re-instantiates mod_main"):
+		failed = true
+	if not VMLTestUtil.expect(VML.is_mod_enabled("mymod"), "T17 is_mod_enabled"):
+		failed = true
+
+	# T11b: uninstall the test zip mod so it never leaks into the next run.
+	if not VMLTestUtil.expect(VML.uninstall_mod("archerpack") == OK, "T11b uninstall zip mod"):
+		failed = true
+	if not VMLTestUtil.expect(not VML.has("archerpack:units/ranger"), "T11b zip mod removed"):
 		failed = true
 
 	quit(1 if failed else 0)

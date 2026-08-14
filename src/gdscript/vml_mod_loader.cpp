@@ -2,9 +2,11 @@
 
 #include <algorithm>
 
+#include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/gd_script.hpp>
+#include <godot_cpp/classes/json.hpp>
 #include <godot_cpp/classes/object.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
@@ -16,6 +18,7 @@
 #include "../core/discovery.h"
 #include "../core/loader_backend.h"
 #include "../core/scanner.h"
+#include "../core/zip_installer.h"
 
 namespace godot {
 
@@ -71,18 +74,23 @@ void VMLModLoader::scan_base_layer() {
 }
 
 void VMLModLoader::scan_mods() {
-	// 1) Discover unpacked mods.
+	// 1) Discover from the unpacked dev folder + runtime-installed user://vml/mods.
 	std::vector<vortarismodloader::DiscoveredMod> discovered;
 	vortarismodloader::DiscoveryScanner::scan_mod_dirs("res://mods-unpacked", discovered);
+	vortarismodloader::DiscoveryScanner::scan_mod_dirs("user://vml/mods", discovered);
 
-	// 2) Parse + validate manifests.
+	// 2) Parse + validate manifests; a zip with a duplicate id is skipped (unpacked wins).
 	std::vector<vortarismodloader::ModManifest> valid_manifests;
 	for (const vortarismodloader::DiscoveredMod &d : discovered) {
 		ModRecord rec;
 		rec.root = d.root;
+		rec.from_zip = d.root.begins_with("user://vml/mods");
 		vortarismodloader::ManifestParser::load(d.manifest_path, rec.manifest);
 		for (const String &err : rec.manifest.errors) {
 			rec.errors.push_back(err);
+		}
+		if (find_mod(rec.manifest.id) != nullptr) {
+			continue; // duplicate id: keep the first (unpacked) record
 		}
 		if (!rec.manifest.valid()) {
 			rec.enabled = false;
@@ -92,13 +100,15 @@ void VMLModLoader::scan_mods() {
 		mods_.push_back(std::move(rec));
 	}
 
-	// 3) Dependency-sorted load order (only valid mods participate).
+	// 3) User profile overrides the default enabled state.
+	load_profile();
+
+	// 4) Dependency-sorted load order (only valid mods participate).
 	std::vector<String> order;
 	std::vector<String> order_errors;
 	vortarismodloader::DependencyGraph::compute_order(valid_manifests, order, order_errors);
 
-	// 4) Attach order + errors back to records. Mods that fail the dependency
-	// graph (missing dep / conflict / cycle) are disabled via order_errors below.
+	// 5) Attach order + errors back to records.
 	for (ModRecord &rec : mods_) {
 		if (std::find(order.begin(), order.end(), rec.manifest.id) != order.end()) {
 			load_order_.push_back(rec.manifest.id);
@@ -107,29 +117,17 @@ void VMLModLoader::scan_mods() {
 	for (const String &err : order_errors) {
 		const int colon = err.find(":");
 		const String id = colon > 0 ? err.substr(0, colon) : String();
-		for (ModRecord &rec : mods_) {
-			if (rec.manifest.id == id) {
-				rec.errors.push_back(err);
-				rec.enabled = false;
-				break;
-			}
+		if (ModRecord *rec = find_mod(id)) {
+			rec->errors.push_back(err);
+			rec->enabled = false;
 		}
 	}
 
-	// 5) Stack valid mods above base and scan their content into the registry.
+	// 6) Stack enabled mods above base and scan their content.
 	for (const String &id : load_order_) {
-		int pri = overlays_.add_source(id, false);
-		for (ModRecord &rec : mods_) {
-			if (rec.manifest.id != id) {
-				continue;
-			}
-			for (const String &dir : rec.manifest.asset_dirs) {
-				vortarismodloader::Scanner::scan_implicit_dir(rec.root + String("/") + dir, id, pri, registry_);
-			}
-			for (const String &dir : rec.manifest.data_dirs) {
-				vortarismodloader::Scanner::scan_implicit_dir(rec.root + String("/") + dir, id, pri, registry_);
-			}
-			break;
+		ModRecord *rec = find_mod(id);
+		if (rec != nullptr && rec->enabled) {
+			scan_mod_content(*rec);
 		}
 	}
 }
@@ -388,7 +386,243 @@ PackedStringArray VMLModLoader::get_mod_errors(const String &p_mod_id) const {
 	return out;
 }
 
+VMLModLoader::ModRecord *VMLModLoader::find_mod(const String &p_mod_id) {
+	for (ModRecord &rec : mods_) {
+		if (rec.manifest.id == p_mod_id) {
+			return &rec;
+		}
+	}
+	return nullptr;
+}
+
+const VMLModLoader::ModRecord *VMLModLoader::find_mod(const String &p_mod_id) const {
+	for (const ModRecord &rec : mods_) {
+		if (rec.manifest.id == p_mod_id) {
+			return &rec;
+		}
+	}
+	return nullptr;
+}
+
+bool VMLModLoader::is_mod_enabled(const String &p_mod_id) const {
+	const ModRecord *rec = find_mod(p_mod_id);
+	return rec != nullptr && rec->enabled;
+}
+
+bool VMLModLoader::is_mod_loaded(const String &p_mod_id) const {
+	const ModRecord *rec = find_mod(p_mod_id);
+	return rec != nullptr && rec->mod_main_instantiated;
+}
+
+void VMLModLoader::scan_mod_content(ModRecord &p_rec) {
+	int pri = overlays_.priority_of(p_rec.manifest.id);
+	if (pri < 0) {
+		pri = overlays_.add_source(p_rec.manifest.id, false);
+	}
+	for (const String &dir : p_rec.manifest.asset_dirs) {
+		vortarismodloader::Scanner::scan_implicit_dir(p_rec.root + String("/") + dir,
+				p_rec.manifest.id, pri, registry_);
+	}
+	for (const String &dir : p_rec.manifest.data_dirs) {
+		vortarismodloader::Scanner::scan_implicit_dir(p_rec.root + String("/") + dir,
+				p_rec.manifest.id, pri, registry_);
+	}
+	p_rec.content_scanned = true;
+
+	// Preload this mod's data into the unified database per the current mode.
+	if (database_mode_ != DatabaseMode::OFF) {
+		for (const vortarismodloader::ResourceId &id : registry_.all_ids()) {
+			const vortarismodloader::ProviderEntry *e = registry_.lookup(id);
+			if (e == nullptr || e->mod_id != p_rec.manifest.id) {
+				continue;
+			}
+			const String ext = e->physical_path.get_extension().to_lower();
+			const bool is_data = is_data_extension(ext);
+			if (database_mode_ == DatabaseMode::DATA && !is_data) {
+				continue;
+			}
+			Variant val;
+			if (is_data) {
+				val = vortarismodloader::LoaderBackend::load_data(e->physical_path);
+			} else {
+				val = vortarismodloader::LoaderBackend::load_resource(e->physical_path);
+			}
+			if (val.get_type() != Variant::NIL) {
+				database_.set(id, val, e->physical_path, e->mod_id);
+			}
+		}
+	}
+}
+
+void VMLModLoader::destroy_mod_main(ModRecord &p_rec) {
+	if (p_rec.mod_main_node != nullptr) {
+		memdelete(p_rec.mod_main_node);
+		p_rec.mod_main_node = nullptr;
+	}
+	p_rec.mod_main_instantiated = false;
+}
+
+bool VMLModLoader::has_active_dependents(const String &p_mod_id) const {
+	for (const ModRecord &rec : mods_) {
+		if (!rec.enabled) {
+			continue;
+		}
+		for (const String &dep : rec.manifest.deps) {
+			String dep_id, op, want;
+			vortarismodloader::DependencyGraph::parse_dependency(dep, dep_id, op, want);
+			if (dep_id == p_mod_id) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+bool VMLModLoader::activate_mod(const String &p_mod_id) {
+	ModRecord *rec = find_mod(p_mod_id);
+	if (rec == nullptr) {
+		return false;
+	}
+	if (rec->enabled && rec->mod_main_instantiated) {
+		return true;
+	}
+	for (const String &dep : rec->manifest.deps) {
+		String dep_id, op, want;
+		vortarismodloader::DependencyGraph::parse_dependency(dep, dep_id, op, want);
+		if (!is_mod_enabled(dep_id)) {
+			rec->errors.push_back(String("dependency not enabled: ") + dep_id);
+			return false;
+		}
+	}
+	if (!rec->content_scanned) {
+		scan_mod_content(*rec);
+	}
+	if (!rec->manifest.main_script.is_empty() && !rec->mod_main_instantiated) {
+		instantiate_mod_main(*rec);
+	}
+	rec->enabled = true;
+	save_profile();
+	emit_signal("mod_enabled", p_mod_id);
+	return true;
+}
+
+bool VMLModLoader::deactivate_mod(const String &p_mod_id) {
+	ModRecord *rec = find_mod(p_mod_id);
+	if (rec == nullptr) {
+		return false;
+	}
+	if (!rec->enabled) {
+		return true;
+	}
+	if (has_active_dependents(p_mod_id)) {
+		rec->errors.push_back(String("cannot disable '") + p_mod_id + String("': active mods depend on it"));
+		return false;
+	}
+	hooks_.remove_mod(p_mod_id);
+	destroy_mod_main(*rec);
+	registry_.remove_mod(p_mod_id);
+	database_.erase_mod(p_mod_id);
+	rec->enabled = false;
+	rec->content_scanned = false; // re-scan on the next activate
+	save_profile();
+	emit_signal("mod_unloaded", p_mod_id);
+	emit_signal("mod_disabled", p_mod_id);
+	return true;
+}
+
+bool VMLModLoader::enable_mod(const String &p_mod_id) {
+	return activate_mod(p_mod_id);
+}
+
+bool VMLModLoader::load_mod(const String &p_mod_id) {
+	return activate_mod(p_mod_id);
+}
+
+bool VMLModLoader::disable_mod(const String &p_mod_id) {
+	return deactivate_mod(p_mod_id);
+}
+
+bool VMLModLoader::unload_mod(const String &p_mod_id) {
+	return deactivate_mod(p_mod_id);
+}
+
+Error VMLModLoader::install_mod_from_zip(const String &p_zip_path) {
+	vortarismodloader::ModManifest m;
+	const Error err = vortarismodloader::ZipInstaller::install(p_zip_path, "user://vml/mods", m);
+	if (err != OK) {
+		return err;
+	}
+	if (find_mod(m.id) != nullptr) {
+		return ERR_ALREADY_EXISTS;
+	}
+	ModRecord rec;
+	rec.root = String("user://vml/mods/") + m.id;
+	rec.from_zip = true;
+	rec.manifest = m;
+	mods_.push_back(std::move(rec));
+	load_order_.push_back(m.id);
+	return activate_mod(m.id) ? OK : ERR_UNAVAILABLE;
+}
+
+Error VMLModLoader::uninstall_mod(const String &p_mod_id) {
+	ModRecord *rec = find_mod(p_mod_id);
+	if (rec == nullptr) {
+		return ERR_DOES_NOT_EXIST;
+	}
+	if (rec->enabled) {
+		deactivate_mod(p_mod_id);
+	}
+	Error err = OK;
+	if (rec->from_zip) {
+		err = vortarismodloader::ZipInstaller::uninstall(rec->root, "user://vml/trash");
+	}
+	load_order_.erase(std::remove(load_order_.begin(), load_order_.end(), p_mod_id), load_order_.end());
+	mods_.erase(std::remove_if(mods_.begin(), mods_.end(),
+							[&](const ModRecord &m) { return m.manifest.id == p_mod_id; }),
+			mods_.end());
+	save_profile();
+	return err;
+}
+
+void VMLModLoader::load_profile() {
+	if (profile_loaded_) {
+		return;
+	}
+	profile_loaded_ = true;
+	Ref<FileAccess> f = FileAccess::open("user://vml/profile.json", FileAccess::READ);
+	if (f.is_null()) {
+		return;
+	}
+	Variant parsed = JSON::parse_string(f->get_as_text());
+	if (parsed.get_type() != Variant::DICTIONARY) {
+		return;
+	}
+	const Dictionary d = parsed;
+	for (ModRecord &rec : mods_) {
+		if (d.has(rec.manifest.id) && d[rec.manifest.id].get_type() == Variant::BOOL) {
+			rec.enabled = d[rec.manifest.id];
+		}
+	}
+}
+
+void VMLModLoader::save_profile() {
+	Dictionary d;
+	for (const ModRecord &rec : mods_) {
+		d[rec.manifest.id] = rec.enabled;
+	}
+	DirAccess::make_dir_recursive_absolute("user://vml");
+	Ref<FileAccess> f = FileAccess::open("user://vml/profile.json", FileAccess::WRITE);
+	if (f.is_null()) {
+		return;
+	}
+	f->store_string(JSON::stringify(d));
+	f->close();
+}
+
 void VMLModLoader::instantiate_mod_main(ModRecord &p_rec) {
+	if (p_rec.mod_main_instantiated) {
+		return;
+	}
 	if (p_rec.manifest.main_script.is_empty()) {
 		return;
 	}
@@ -412,6 +646,8 @@ void VMLModLoader::instantiate_mod_main(ModRecord &p_rec) {
 	}
 	node->set_name(p_rec.manifest.id);
 	add_child(node);
+	p_rec.mod_main_node = node;
+	p_rec.mod_main_instantiated = true;
 	emit_signal("mod_loaded", p_rec.manifest.id);
 }
 
@@ -554,9 +790,21 @@ void VMLModLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("list_hooks", "prefix"), &VMLModLoader::list_hooks, DEFVAL(""));
 	ClassDB::bind_method(D_METHOD("list_hook_points", "prefix"), &VMLModLoader::list_hook_points, DEFVAL(""));
 
+	ClassDB::bind_method(D_METHOD("is_mod_enabled", "mod_id"), &VMLModLoader::is_mod_enabled);
+	ClassDB::bind_method(D_METHOD("is_mod_loaded", "mod_id"), &VMLModLoader::is_mod_loaded);
+	ClassDB::bind_method(D_METHOD("enable_mod", "mod_id"), &VMLModLoader::enable_mod);
+	ClassDB::bind_method(D_METHOD("disable_mod", "mod_id"), &VMLModLoader::disable_mod);
+	ClassDB::bind_method(D_METHOD("load_mod", "mod_id"), &VMLModLoader::load_mod);
+	ClassDB::bind_method(D_METHOD("unload_mod", "mod_id"), &VMLModLoader::unload_mod);
+	ClassDB::bind_method(D_METHOD("install_mod_from_zip", "zip_path"), &VMLModLoader::install_mod_from_zip);
+	ClassDB::bind_method(D_METHOD("uninstall_mod", "mod_id"), &VMLModLoader::uninstall_mod);
+
 	ADD_SIGNAL(MethodInfo("database_loaded"));
 	ADD_SIGNAL(MethodInfo("database_entry_changed", PropertyInfo(Variant::STRING, "id")));
 	ADD_SIGNAL(MethodInfo("mod_loaded", PropertyInfo(Variant::STRING, "mod_id")));
+	ADD_SIGNAL(MethodInfo("mod_unloaded", PropertyInfo(Variant::STRING, "mod_id")));
+	ADD_SIGNAL(MethodInfo("mod_enabled", PropertyInfo(Variant::STRING, "mod_id")));
+	ADD_SIGNAL(MethodInfo("mod_disabled", PropertyInfo(Variant::STRING, "mod_id")));
 }
 
 } // namespace godot

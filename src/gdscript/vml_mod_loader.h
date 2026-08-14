@@ -87,6 +87,20 @@ public:
 	PackedStringArray get_mod_ids() const;
 	PackedStringArray get_load_order() const;
 	PackedStringArray get_mod_errors(const String &p_mod_id) const;
+	bool is_mod_enabled(const String &p_mod_id) const;
+	bool is_mod_loaded(const String &p_mod_id) const;
+
+	// --- mod lifecycle (M6: runtime load/unload + zip install) ---------
+	/// Activate: stack content, instantiate mod_main, register hooks.
+	bool enable_mod(const String &p_mod_id);
+	/// Deactivate: remove hooks/content/database, destroy mod_main.
+	bool disable_mod(const String &p_mod_id);
+	bool load_mod(const String &p_mod_id);
+	bool unload_mod(const String &p_mod_id);
+	/// Transactionally extract a zip mod into user://vml/mods and activate it.
+	Error install_mod_from_zip(const String &p_zip_path);
+	/// Remove an installed (user://) mod entirely.
+	Error uninstall_mod(const String &p_mod_id);
 
 	// signals
 	static void _static_bind_signals();
@@ -104,7 +118,11 @@ private:
 	struct ModRecord {
 		vortarismodloader::ModManifest manifest;
 		String root;
-		bool enabled = true;
+		bool enabled = true; // content is stacked in the registry
+		bool content_scanned = false;
+		bool mod_main_instantiated = false;
+		Node *mod_main_node = nullptr;
+		bool from_zip = false; // installed into user://vml/mods
 		std::vector<String> errors;
 	};
 
@@ -116,7 +134,16 @@ private:
 
 	void scan_base_layer();
 	void scan_mods();
+	ModRecord *find_mod(const String &p_mod_id);
+	const ModRecord *find_mod(const String &p_mod_id) const;
+	void scan_mod_content(ModRecord &p_rec);
 	void instantiate_mod_main(ModRecord &p_rec);
+	void destroy_mod_main(ModRecord &p_rec);
+	bool activate_mod(const String &p_mod_id);
+	bool deactivate_mod(const String &p_mod_id);
+	bool has_active_dependents(const String &p_mod_id) const;
+	void load_profile();
+	void save_profile();
 	DatabaseMode mode_from_string(const String &p_mode) const;
 	String mode_to_string(DatabaseMode p_mode) const;
 	bool is_data_extension(const String &p_ext) const;
@@ -134,6 +161,7 @@ private:
 			explicit_paths_;
 	std::vector<ModRecord> mods_;
 	std::vector<String> load_order_;
+	bool profile_loaded_ = false;
 	bool initialized_ = false;
 
 	static VMLModLoader *singleton;
