@@ -1041,6 +1041,9 @@ void VMLModLoader::log_verbose(const String &p_msg) const {
 }
 
 String VMLModLoader::owning_mod(const String &p_path) const {
+	if (p_path.begins_with("res://assets/") || p_path.begins_with("res://data/")) {
+		return "base";
+	}
 	for (const ModRecord &rec : mods_) {
 		if (p_path.begins_with(rec.root + String("/"))) {
 			return rec.manifest.id;
@@ -1081,6 +1084,32 @@ void VMLModLoader::reload_resources(const PackedStringArray &p_paths) {
 		}
 	}
 	for (const String &mid : affected) {
+		if (mid == "base") {
+			// Re-scan the base layer (res://assets + res://data) and refresh its data.
+			registry_.remove_mod("base");
+			database_.erase_mod("base");
+			vortarismodloader::Scanner::scan_implicit_dir("res://assets", "base", 0, registry_);
+			vortarismodloader::Scanner::scan_implicit_dir("res://data", "base", 0, registry_);
+			if (database_mode_ != DatabaseMode::OFF) {
+				for (const vortarismodloader::ResourceId &id : registry_.all_ids()) {
+					const vortarismodloader::ProviderEntry *e = registry_.lookup(id);
+					if (e == nullptr || e->mod_id != "base") {
+						continue;
+					}
+					const String ext = e->physical_path.get_extension().to_lower();
+					const bool is_data = is_data_extension(ext);
+					if (database_mode_ == DatabaseMode::DATA && !is_data) {
+						continue;
+					}
+					const Variant val = load_entry_value(*e);
+					if (val.get_type() != Variant::NIL) {
+						database_.set(id, val, e->physical_path, e->mod_id);
+					}
+					emit_signal("database_entry_changed", id.canonical());
+				}
+			}
+			continue;
+		}
 		ModRecord *rec = find_mod(mid);
 		if (rec == nullptr || !rec->enabled) {
 			continue;

@@ -467,4 +467,19 @@ func _initialize() -> void:
 	if id_panel:
 		id_panel.free()
 
+	# --- 0.2.1: base-layer hot reload ---
+	var base_path := "res://data/game/units/peasant.json"
+	var saved_base: String = FileAccess.get_file_as_string(base_path)
+	FileAccess.open(base_path, FileAccess.WRITE).store_string(
+			'{"id":"game:units.peasant","name":"Peasant Z","health":1,"attack":1,"speed":1}')
+	VML.reload_resources([base_path])
+	var base_reloaded: Dictionary = VML.get_data("game:units.peasant")
+	if not VMLTestUtil.expect_eq(base_reloaded.get("name"), "Peasant Z", "T41 base hot reload"):
+		failed = true
+	FileAccess.open(base_path, FileAccess.WRITE).store_string(saved_base)
+	VML.reload_resources([base_path])
+	var base_restored: Dictionary = VML.get_data("game:units.peasant")
+	if not VMLTestUtil.expect_eq(base_restored.get("name"), "Peasant", "T41 base reload restores"):
+		failed = true
+
 	quit(1 if failed else 0)

@@ -1,17 +1,20 @@
 @tool
 extends Control
-## VML mod management dock. Three tabs: Mods (list/state/toggle/install),
-## IDs (browse the content registry) and Hooks (registered hook points/handlers).
-## Talks only to the VML engine singleton. Interface language is English.
+## VML mod management dock — lives in the LEFT-BOTTOM dock, next to Import.
+## Tabs: Mods (list/state/toggle/install), Hooks (hook points/handlers).
+## The ID registry browser lives in the "VML IDs" panel (right dock).
 
 const ModWizard = preload("mod_wizard.gd")
 
 var _mod_tree: Tree
-var _id_tree: Tree
 var _hook_tree: Tree
 var _status: Label
 var _wizard: ConfirmationDialog
 var _last_mod_id := ""
+var _config_dlg: ConfirmationDialog
+var _config_text: TextEdit
+var _config_status: Label
+var _config_mod_id := ""
 
 
 func _ready() -> void:
@@ -28,43 +31,43 @@ func _ready() -> void:
 	_add_btn(hbox, "Rescan", _on_rescan)
 	_add_btn(hbox, "Reload DB", _on_reload)
 	_add_btn(hbox, "Toggle", _on_toggle_selected)
+	_add_btn(hbox, "Config", _on_config)
 
 	var tabs := TabContainer.new()
 	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_child(tabs)
 
-	_mod_tree = _make_tree(["Mod", "Version", "State"])
-	tabs.add_child(_tab("Mods", _mod_tree))
-	_id_tree = _make_tree(["Namespace", "Path", "Source"])
-	tabs.add_child(_tab("IDs", _id_tree))
-	_hook_tree = _make_tree(["Hook", "Type", "Detail"])
-	tabs.add_child(_tab("Hooks", _hook_tree))
+	_mod_tree = Tree.new()
+	_setup_columns(_mod_tree, ["Mod", "Version", "State"], [110, 60, 90])
+	_mod_tree.name = "Mods"
+	tabs.add_child(_mod_tree)
+
+	_hook_tree = Tree.new()
+	_setup_columns(_hook_tree, ["Hook", "Type", "Detail"], [130, 70, 200])
+	_hook_tree.name = "Hooks"
+	tabs.add_child(_hook_tree)
 
 	_status = Label.new()
+	_status.text = ""
 	vbox.add_child(_status)
 
 	_wizard = ModWizard.new()
 	add_child(_wizard)
 	_wizard.mod_created.connect(_on_mod_created)
 
+	_build_config_dialog()
+
 	refresh()
 
 
-func _make_tree(columns: Array) -> Tree:
-	var t := Tree.new()
-	t.columns = columns.size()
-	t.set_column_titles_visible(true)
-	for i in columns.size():
-		t.set_column_title(i, columns[i])
-		# Keep column widths user-adjustable (draggable separators) and set a sane default.
-		t.set_column_expand(i, i == 0)
-		t.set_column_custom_minimum_width(i, 90)
-	return t
-
-
-func _tab(title: String, content: Control) -> Control:
-	content.name = title
-	return content
+func _setup_columns(tree: Tree, titles: Array, widths: Array) -> void:
+	tree.columns = titles.size()
+	tree.set_column_titles_visible(true)
+	for i in titles.size():
+		tree.set_column_title(i, titles[i])
+		# Only the last column expands; the others are user-resizable.
+		tree.set_column_expand(i, i == titles.size() - 1)
+		tree.set_column_custom_minimum_width(i, widths[i])
 
 
 func _add_btn(parent: Control, text: String, callable: Callable) -> void:
@@ -79,12 +82,8 @@ func refresh() -> void:
 		_status.text = "VML engine singleton not loaded"
 		return
 	_refresh_mods()
-	_refresh_ids()
 	_refresh_hooks()
-	var total := 0
-	for ns in VML.list_ids():
-		total += VML.list_ids()[ns].size()
-	_status.text = "%d mods, %d ids, db=%s" % [VML.get_mod_ids().size(), total, VML.get_database_mode()]
+	_status.text = "%d mods, db=%s" % [VML.get_mod_ids().size(), VML.get_database_mode()]
 
 
 func _refresh_mods() -> void:
@@ -108,17 +107,6 @@ func _refresh_mods() -> void:
 	if to_select != null:
 		_mod_tree.set_selected(to_select, 0)
 		_mod_tree.scroll_to_item(to_select)
-
-
-func _refresh_ids() -> void:
-	_id_tree.clear()
-	var root := _id_tree.create_item()
-	for ns in VML.list_ids():
-		for path in VML.list_ids()[ns]:
-			var item := _id_tree.create_item(root)
-			item.set_text(0, ns)
-			item.set_text(1, path)
-			item.set_text(2, VML.resolve(ns + ":" + path))
 
 
 func _refresh_hooks() -> void:
@@ -203,3 +191,41 @@ func _on_toggle_selected() -> void:
 		var ok := VML.enable_mod(id)
 		print("VML: enable_mod(", id, ") -> ", ok)
 	refresh()
+
+
+func _build_config_dialog() -> void:
+	_config_dlg = ConfirmationDialog.new()
+	_config_dlg.title = "Mod Config"
+	_config_dlg.ok_button_text = "Save"
+	_config_dlg.cancel_button_text = "Cancel"
+	var vbox := VBoxContainer.new()
+	vbox.custom_minimum_size = Vector2(440, 320)
+	_config_dlg.add_child(vbox)
+	_config_status = Label.new()
+	vbox.add_child(_config_status)
+	_config_text = TextEdit.new()
+	_config_text.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_config_text.syntax_highlighting = "json"
+	vbox.add_child(_config_text)
+	add_child(_config_dlg)
+	_config_dlg.confirmed.connect(_on_config_save)
+
+
+func _on_config() -> void:
+	var id := _selected_mod_id()
+	if id.is_empty() or not Engine.has_singleton("VML"):
+		return
+	_config_mod_id = id
+	_config_text.text = JSON.stringify(VML.get_config(id), "  ")
+	var schema: Dictionary = VML.get_config_schema(id)
+	_config_status.text = "mod: %s  ·  config_schema: %s" % [id, "declared" if not schema.is_empty() else "none"]
+	_config_dlg.popup_centered(Vector2(480, 380))
+
+
+func _on_config_save() -> void:
+	var parsed = JSON.parse_string(_config_text.text)
+	if parsed is Dictionary:
+		VML.set_config(_config_mod_id, parsed)
+		print("VML: config saved for ", _config_mod_id)
+	else:
+		push_error("VML: invalid config JSON for " + _config_mod_id)
