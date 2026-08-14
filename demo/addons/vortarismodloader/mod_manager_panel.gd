@@ -194,15 +194,26 @@ func _on_reload() -> void:
 
 func _on_toggle_selected() -> void:
 	var id := _selected_mod_id()
-	if id.is_empty() or not Engine.has_singleton("VML"):
+	if id.is_empty():
+		_status.text = "select a mod first"
+		return
+	if not Engine.has_singleton("VML"):
 		return
 	_last_mod_id = id
 	if VML.is_mod_enabled(id):
 		var ok := VML.disable_mod(id)
 		print("VML: disable_mod(", id, ") -> ", ok)
+		if ok:
+			_status.text = "disabled %s" % id
+		else:
+			_status.text = "cannot disable %s — %s" % [id, " · ".join(VML.get_mod_errors(id))]
 	else:
 		var ok := VML.enable_mod(id)
 		print("VML: enable_mod(", id, ") -> ", ok)
+		if ok:
+			_status.text = "enabled %s" % id
+		else:
+			_status.text = "cannot enable %s — %s" % [id, " · ".join(VML.get_mod_errors(id))]
 	refresh()
 
 

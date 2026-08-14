@@ -924,14 +924,23 @@ bool VMLModLoader::activate_mod(const String &p_mod_id) {
 	if (rec == nullptr) {
 		return false;
 	}
-	if (rec->enabled && rec->mod_main_instantiated) {
-		return true;
+	if (rec->enabled && rec->content_scanned) {
+		return true; // idempotent (a fresh install has enabled=true but no scan yet)
 	}
+	if (rec->activating) {
+		// Dependency cycle: a mod can't enable itself through its deps.
+		rec->errors.push_back(String("dependency cycle while enabling '") + p_mod_id + String("'"));
+		return false;
+	}
+	rec->activating = true;
+	// Cascade-enable required dependencies first, so a mod always brings its
+	// deps with it (user confusion was caused by silent enable failures).
 	for (const String &dep : rec->manifest.deps) {
 		String dep_id, op, want;
 		vortarismodloader::DependencyGraph::parse_dependency(dep, dep_id, op, want);
-		if (!is_mod_enabled(dep_id)) {
-			rec->errors.push_back(String("dependency not enabled: ") + dep_id);
+		if (!is_mod_enabled(dep_id) && !activate_mod(dep_id)) {
+			rec->errors.push_back(String("dependency cannot be enabled: ") + dep_id);
+			rec->activating = false;
 			return false;
 		}
 	}
@@ -942,6 +951,7 @@ bool VMLModLoader::activate_mod(const String &p_mod_id) {
 		instantiate_mod_main(*rec);
 	}
 	rec->enabled = true;
+	rec->activating = false;
 	save_profile();
 	print_line(String("VML: mod '") + p_mod_id + String("' enabled"));
 	log_verbose(String("stacked content, mod_main instantiated"));

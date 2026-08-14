@@ -198,6 +198,7 @@ private:
 		bool mod_main_instantiated = false;
 		Node *mod_main_node = nullptr;
 		bool from_zip = false; // installed into user://vml/mods
+		bool activating = false; // recursion guard for cascade-enable
 		std::vector<String> errors;
 	};
 

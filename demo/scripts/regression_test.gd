@@ -43,6 +43,9 @@ func _initialize() -> void:
 	# Clean up any zip mod left over from a previous run (user:// persists).
 	if VML.get_mod_ids().has("archerpack"):
 		VML.uninstall_mod("archerpack")
+	# Reset persisted enable-state from previous runs so the suite is repeatable.
+	DirAccess.remove_absolute("user://vml/profile.json")
+	VML.rescan()
 
 	# --- T0: singleton ---
 	if not VMLTestUtil.expect(Engine.has_singleton("VML"), "T0 VML singleton exists"):
@@ -481,5 +484,17 @@ func _initialize() -> void:
 	var base_restored: Dictionary = VML.get_data("game:units.peasant")
 	if not VMLTestUtil.expect_eq(base_restored.get("name"), "Peasant", "T41 base reload restores"):
 		failed = true
+
+	# --- 0.2.1: cascade enable (deps auto-enabled) ---
+	VML.disable_mod("mymod")
+	VML.disable_mod("mylib") # mymod disabled, so mylib (its dep) can disable
+	if not VMLTestUtil.expect(not VML.is_mod_enabled("mylib"), "T42 mylib disabled"):
+		failed = true
+	# Enabling mymod must cascade-enable its dependency mylib.
+	if not VMLTestUtil.expect(VML.enable_mod("mymod"), "T42 enable mymod cascades deps"):
+		failed = true
+	if not VMLTestUtil.expect(VML.is_mod_enabled("mylib"), "T42 dependency auto-enabled"):
+		failed = true
+	VML.enable_mod("mylib")
 
 	quit(1 if failed else 0)
