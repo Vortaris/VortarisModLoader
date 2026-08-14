@@ -510,4 +510,18 @@ func _initialize() -> void:
 		failed = true
 	VML.enable_mod("mymod")
 
+	# --- 0.2.1: dependency status query (enable-confirmation UI) ---
+	VML.disable_mod("mylib")
+	VML.disable_mod("mymod")
+	var deps := VML.get_mod_dependencies("mymod")
+	if not VMLTestUtil.expect(deps.has("mylib") and deps["mylib"].get("exists") == true,
+			"T44 mymod deps reported"):
+		failed = true
+	if not VMLTestUtil.expect(deps["mylib"].get("enabled") == false, "T44 dep flagged disabled"):
+		failed = true
+	if not VMLTestUtil.expect(VML.get_mod_dependencies("nonexistent_mod").is_empty(),
+			"T44 unknown mod has no deps"):
+		failed = true
+	VML.enable_mod("mymod")
+
 	quit(1 if failed else 0)

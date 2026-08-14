@@ -884,6 +884,24 @@ bool VMLModLoader::is_mod_loaded(const String &p_mod_id) const {
 	return rec != nullptr && rec->mod_main_instantiated;
 }
 
+Dictionary VMLModLoader::get_mod_dependencies(const String &p_mod_id) const {
+	Dictionary out;
+	const ModRecord *rec = find_mod(p_mod_id);
+	if (rec == nullptr) {
+		return out;
+	}
+	for (const String &dep : rec->manifest.deps) {
+		String dep_id, op, want;
+		vortarismodloader::DependencyGraph::parse_dependency(dep, dep_id, op, want);
+		const ModRecord *dep_rec = find_mod(dep_id);
+		Dictionary info;
+		info["exists"] = dep_rec != nullptr;
+		info["enabled"] = dep_rec != nullptr && dep_rec->enabled;
+		out[dep_id] = info;
+	}
+	return out;
+}
+
 PackedStringArray VMLModLoader::get_mod_dependents(const String &p_mod_id) const {
 	PackedStringArray out;
 	for (const ModRecord &rec : mods_) {
@@ -1547,6 +1565,7 @@ void VMLModLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("is_mod_enabled", "mod_id"), &VMLModLoader::is_mod_enabled);
 	ClassDB::bind_method(D_METHOD("is_mod_loaded", "mod_id"), &VMLModLoader::is_mod_loaded);
 	ClassDB::bind_method(D_METHOD("get_mod_dependents", "mod_id"), &VMLModLoader::get_mod_dependents);
+	ClassDB::bind_method(D_METHOD("get_mod_dependencies", "mod_id"), &VMLModLoader::get_mod_dependencies);
 	ClassDB::bind_method(D_METHOD("enable_mod", "mod_id"), &VMLModLoader::enable_mod);
 	ClassDB::bind_method(D_METHOD("disable_mod", "mod_id"), &VMLModLoader::disable_mod);
 	ClassDB::bind_method(D_METHOD("load_mod", "mod_id"), &VMLModLoader::load_mod);

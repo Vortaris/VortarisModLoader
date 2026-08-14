@@ -17,7 +17,8 @@ var _config_status: Label
 var _config_error: Label
 var _config_mod_id := ""
 var _confirm_dlg: ConfirmationDialog
-var _pending_disable_id := ""
+var _pending_target := ""
+var _pending_action := "" # "disable" | "enable"
 
 
 func _ready() -> void:
@@ -197,10 +198,19 @@ func _on_reload() -> void:
 
 func _build_confirm_dialog() -> void:
 	_confirm_dlg = ConfirmationDialog.new()
-	_confirm_dlg.ok_button_text = "Disable"
+	_confirm_dlg.ok_button_text = "OK"
 	_confirm_dlg.cancel_button_text = "Cancel"
 	add_child(_confirm_dlg)
-	_confirm_dlg.confirmed.connect(_on_confirm_disable)
+	_confirm_dlg.confirmed.connect(_on_confirm)
+
+
+func _ask_confirm(action: String, id: String, note: String, list: Array) -> void:
+	_pending_target = id
+	_pending_action = "disable" if action == "Disable" else "enable"
+	_confirm_dlg.title = action + " Mod"
+	_confirm_dlg.dialog_text = "%s '%s'?\n%s:\n%s" % [action, id, note, "\n".join(list)]
+	_confirm_dlg.ok_button_text = action
+	_confirm_dlg.popup_centered(Vector2(440, 260))
 
 
 func _on_toggle_selected() -> void:
@@ -215,18 +225,36 @@ func _on_toggle_selected() -> void:
 		# Dependent mods would be cascade-disabled too — ask first.
 		var dependents := VML.get_mod_dependents(id)
 		if dependents.size() > 0:
-			_pending_disable_id = id
-			_confirm_dlg.dialog_text = "Disable '%s'?\nThis will also disable:\n%s" % [id, "\n".join(dependents)]
-			_confirm_dlg.popup_centered(Vector2(440, 260))
+			_ask_confirm("Disable", id, "This will also disable", dependents)
 			return
 		_do_disable(id)
 	else:
+		# Enabling may cascade-enable deps; refuse with a clear reason if any is missing.
+		var deps := VML.get_mod_dependencies(id)
+		var missing: Array = []
+		var to_enable: Array = []
+		for dep_id in deps:
+			if not deps[dep_id]["exists"]:
+				missing.append(dep_id)
+			elif not deps[dep_id]["enabled"]:
+				to_enable.append(dep_id)
+		if missing.size() > 0:
+			_status.text = "cannot enable %s — missing: %s" % [id, " · ".join(missing)]
+			print("VML: cannot enable ", id, " — missing deps: ", missing)
+			return
+		if to_enable.size() > 0:
+			_ask_confirm("Enable", id, "This will also enable", to_enable)
+			return
 		_do_enable(id)
 
 
-func _on_confirm_disable() -> void:
-	_do_disable(_pending_disable_id)
-	_pending_disable_id = ""
+func _on_confirm() -> void:
+	if _pending_action == "disable":
+		_do_disable(_pending_target)
+	elif _pending_action == "enable":
+		_do_enable(_pending_target)
+	_pending_target = ""
+	_pending_action = ""
 
 
 func _do_disable(id: String) -> void:

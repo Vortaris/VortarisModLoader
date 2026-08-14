@@ -166,6 +166,8 @@ public:
 	bool is_mod_loaded(const String &p_mod_id) const;
 	/// Enabled mods that depend on `p_mod_id` (for disable-confirmation UI).
 	PackedStringArray get_mod_dependents(const String &p_mod_id) const;
+	/// Deps of `p_mod_id` as { dep_id: { exists, enabled } } (for enable-confirmation UI).
+	Dictionary get_mod_dependencies(const String &p_mod_id) const;
 
 	// --- mod lifecycle (M6: runtime load/unload + zip install) ---------
 	/// Activate: stack content, instantiate mod_main, register hooks.
