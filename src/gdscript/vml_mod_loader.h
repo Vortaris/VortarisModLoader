@@ -21,6 +21,8 @@
 
 namespace godot {
 
+class VMLHotReloader;
+
 // The VML engine singleton. Registered at MODULE_INITIALIZATION_LEVEL_SCENE so it
 // exists before any autoload and before the main scene. This is the only global
 // entry point mods and games talk to.
@@ -68,6 +70,16 @@ public:
 	/// Instantiate every enabled mod's mod_main.gd (the game calls this from a
 	/// bootstrap autoload's _ready). mod_main must register hooks/config in _init.
 	void finish_startup();
+
+	// --- M7: resources + dev hot reload --------------------------------
+	/// Instantiate a PackedScene by id (game:scenes/camp -> Node).
+	Variant instantiate(const String &p_id);
+	/// Dev hot reload: re-scan the affected mod(s) and refresh their data.
+	void reload_resources(const PackedStringArray &p_paths);
+	/// Root directories to watch for changes (base layer + enabled mods).
+	PackedStringArray get_content_roots() const;
+	/// Start a polling hot-reloader node (dev builds / editor).
+	void start_hot_reload(double p_interval = 0.5);
 
 	// --- declarative hooks ---------------------------------------------
 	bool add_hook(const String &p_hook_id, const Callable &p_callable, int p_priority = 0);
@@ -134,6 +146,7 @@ private:
 
 	void scan_base_layer();
 	void scan_mods();
+	String owning_mod(const String &p_path) const;
 	ModRecord *find_mod(const String &p_mod_id);
 	const ModRecord *find_mod(const String &p_mod_id) const;
 	void scan_mod_content(ModRecord &p_rec);
@@ -161,6 +174,7 @@ private:
 			explicit_paths_;
 	std::vector<ModRecord> mods_;
 	std::vector<String> load_order_;
+	VMLHotReloader *hot_reloader_ = nullptr;
 	bool profile_loaded_ = false;
 	bool initialized_ = false;
 

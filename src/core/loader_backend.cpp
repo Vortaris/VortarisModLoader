@@ -1,6 +1,11 @@
 #include "loader_backend.h"
 
+#include <godot_cpp/classes/audio_stream_mp3.hpp>
+#include <godot_cpp/classes/audio_stream_wav.hpp>
 #include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/classes/font_file.hpp>
+#include <godot_cpp/classes/image.hpp>
+#include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/classes/json.hpp>
 #include <godot_cpp/core/error_macros.hpp>
 
@@ -75,8 +80,48 @@ godot::Variant LoaderBackend::load_data(const godot::String &p_path) {
 	return godot::Variant();
 }
 
+godot::Ref<godot::ImageTexture> LoaderBackend::load_image(const godot::String &p_path) {
+	godot::Ref<godot::Image> img = godot::Image::load_from_file(p_path);
+	if (img.is_null()) {
+		ERR_PRINT(godot::String("VML: cannot load image: ") + p_path);
+		return godot::Ref<godot::ImageTexture>();
+	}
+	return godot::ImageTexture::create_from_image(img);
+}
+
+godot::Ref<godot::Resource> LoaderBackend::load_raw_asset(const godot::String &p_path) {
+	const godot::String ext = extension_of(p_path);
+	if (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "webp" || ext == "bmp" || ext == "tga") {
+		return load_image(p_path);
+	}
+	if (ext == "wav") {
+		return godot::AudioStreamWAV::load_from_file(p_path);
+	}
+	if (ext == "mp3") {
+		return godot::AudioStreamMP3::load_from_file(p_path);
+	}
+	if (ext == "ttf" || ext == "otf") {
+		godot::Ref<godot::FontFile> font;
+		font.instantiate();
+		if (font->load_dynamic_font(p_path) != godot::OK) {
+			ERR_PRINT(godot::String("VML: cannot load font: ") + p_path);
+			return godot::Ref<godot::Resource>();
+		}
+		return font;
+	}
+	// Fall back to the standard resource loader (text formats, scenes, scripts).
+	return load_resource(p_path);
+}
+
 godot::Ref<godot::Resource> LoaderBackend::load_resource(const godot::String &p_path,
 		godot::ResourceLoader::CacheMode p_mode) {
+	// Raw assets are constructed directly so they work identically under
+	// res:// (imported) and user:// (no import cache) and hot-reload cleanly.
+	const godot::String ext = extension_of(p_path);
+	if (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "webp" || ext == "bmp" || ext == "tga" ||
+			ext == "wav" || ext == "mp3" || ext == "ttf" || ext == "otf") {
+		return load_raw_asset(p_path);
+	}
 	godot::Ref<godot::Resource> res = godot::ResourceLoader::get_singleton()->load(p_path, "", p_mode);
 	if (res.is_null()) {
 		ERR_PRINT(godot::String("VML: failed to load resource: ") + p_path);

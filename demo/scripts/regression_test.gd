@@ -245,4 +245,43 @@ func _initialize() -> void:
 	if not VMLTestUtil.expect(not VML.has("archerpack:units/ranger"), "T11b zip mod removed"):
 		failed = true
 
+	# --- M7: raw assets + vml:// router + hot reload ---
+	# T8: instantiate a scene by id.
+	var camp = VML.instantiate("game:scenes/camp")
+	if not VMLTestUtil.expect(camp is Node, "T8 instantiate scene by id"):
+		failed = true
+	if camp is Node:
+		camp.free()
+
+	# T9: native vml:// resource loader returns a PackedScene.
+	var via_router = load("vml://game:scenes/camp")
+	if not VMLTestUtil.expect(via_router is PackedScene, "T9 load('vml://...') returns PackedScene"):
+		failed = true
+
+	# T10: raw image under user:// (no import cache) -> ImageTexture.
+	var img_path := "user://vml/test_icon.png"
+	var img := Image.create(8, 8, false, Image.FORMAT_RGBA8)
+	img.fill(Color(1, 0, 0, 1))
+	img.save_png(img_path)
+	VML.register("test:icon", img_path)
+	var tex = VML.get_resource("test:icon")
+	if not VMLTestUtil.expect(tex is ImageTexture, "T10 user:// png loads as ImageTexture"):
+		failed = true
+	VML.unregister("test:icon")
+
+	# T13: hot reload — rewrite a mod data file, reload, observe the new value.
+	var archer_path := "res://mods-unpacked/sample_mod/data/mymod/units/archer.json"
+	var saved_archer: String = FileAccess.get_file_as_string(archer_path)
+	FileAccess.open(archer_path, FileAccess.WRITE).store_string(
+			'{"id":"mymod:units/archer","name":"Archer X","health":99,"attack":8,"speed":6}')
+	VML.reload_resources([archer_path])
+	var reloaded: Dictionary = VML.get_data("mymod:units/archer")
+	if not VMLTestUtil.expect_eq(reloaded.get("name"), "Archer X", "T13 hot reload reflects file change"):
+		failed = true
+	FileAccess.open(archer_path, FileAccess.WRITE).store_string(saved_archer)
+	VML.reload_resources([archer_path])
+	var restored_archer: Dictionary = VML.get_data("mymod:units/archer")
+	if not VMLTestUtil.expect_eq(restored_archer.get("name"), "Archer", "T13 reload restores original"):
+		failed = true
+
 	quit(1 if failed else 0)

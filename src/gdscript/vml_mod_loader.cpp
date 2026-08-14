@@ -8,11 +8,14 @@
 #include <godot_cpp/classes/gd_script.hpp>
 #include <godot_cpp/classes/json.hpp>
 #include <godot_cpp/classes/object.hpp>
+#include <godot_cpp/classes/packed_scene.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/memory.hpp>
 #include <godot_cpp/core/print_string.hpp>
+
+#include "vml_hot_reloader.h"
 
 #include "../core/dependency_graph.h"
 #include "../core/discovery.h"
@@ -584,6 +587,113 @@ Error VMLModLoader::uninstall_mod(const String &p_mod_id) {
 	return err;
 }
 
+String VMLModLoader::owning_mod(const String &p_path) const {
+	for (const ModRecord &rec : mods_) {
+		if (p_path.begins_with(rec.root + String("/"))) {
+			return rec.manifest.id;
+		}
+	}
+	return String();
+}
+
+Variant VMLModLoader::instantiate(const String &p_id) {
+	vortarismodloader::ResourceId rid;
+	if (!vortarismodloader::ResourceId::parse(p_id, rid)) {
+		ERR_PRINT(String("VML: invalid id '") + p_id + String("'"));
+		return Variant();
+	}
+	const vortarismodloader::ProviderEntry *e = registry_.lookup(rid);
+	if (e == nullptr) {
+		ERR_PRINT(String("VML: unknown id '") + p_id + String("'"));
+		return Variant();
+	}
+	const String ext = e->physical_path.get_extension().to_lower();
+	if (ext != "tscn" && ext != "scn") {
+		ERR_PRINT(String("VML: id '") + p_id + String("' is not a scene"));
+		return Variant();
+	}
+	Ref<PackedScene> scene = vortarismodloader::LoaderBackend::load_resource(e->physical_path);
+	if (scene.is_null()) {
+		return Variant();
+	}
+	return scene->instantiate();
+}
+
+void VMLModLoader::reload_resources(const PackedStringArray &p_paths) {
+	std::vector<String> affected;
+	for (int i = 0; i < p_paths.size(); i++) {
+		const String mid = owning_mod(p_paths[i]);
+		if (!mid.is_empty() && std::find(affected.begin(), affected.end(), mid) == affected.end()) {
+			affected.push_back(mid);
+		}
+	}
+	for (const String &mid : affected) {
+		ModRecord *rec = find_mod(mid);
+		if (rec == nullptr || !rec->enabled) {
+			continue;
+		}
+		// Re-scan content (handles added/removed/renamed files), refresh data.
+		registry_.remove_mod(mid);
+		database_.erase_mod(mid);
+		rec->content_scanned = false;
+		scan_mod_content(*rec);
+		if (database_mode_ == DatabaseMode::OFF) {
+			continue;
+		}
+		for (const vortarismodloader::ResourceId &id : registry_.all_ids()) {
+			const vortarismodloader::ProviderEntry *e = registry_.lookup(id);
+			if (e == nullptr || e->mod_id != mid) {
+				continue;
+			}
+			const String ext = e->physical_path.get_extension().to_lower();
+			const bool is_data = is_data_extension(ext);
+			if (database_mode_ == DatabaseMode::DATA && !is_data) {
+				continue;
+			}
+			Variant val;
+			if (is_data) {
+				val = vortarismodloader::LoaderBackend::load_data(e->physical_path);
+			} else {
+				val = vortarismodloader::LoaderBackend::load_resource(e->physical_path);
+			}
+			if (val.get_type() != Variant::NIL) {
+				database_.set(id, val, e->physical_path, e->mod_id);
+			}
+			emit_signal("database_entry_changed", id.canonical());
+		}
+	}
+	emit_signal("registry_rebuilt");
+}
+
+PackedStringArray VMLModLoader::get_content_roots() const {
+	PackedStringArray roots;
+	roots.push_back("res://assets");
+	roots.push_back("res://data");
+	for (const ModRecord &rec : mods_) {
+		if (!rec.enabled) {
+			continue;
+		}
+		for (const String &dir : rec.manifest.asset_dirs) {
+			roots.push_back(rec.root + String("/") + dir);
+		}
+		for (const String &dir : rec.manifest.data_dirs) {
+			roots.push_back(rec.root + String("/") + dir);
+		}
+	}
+	return roots;
+}
+
+void VMLModLoader::start_hot_reload(double p_interval) {
+	if (hot_reloader_ != nullptr) {
+		return;
+	}
+	hot_reloader_ = memnew(VMLHotReloader);
+	hot_reloader_->set_poll_interval(p_interval);
+	hot_reloader_->set_name("VMLHotReloader");
+	add_child(hot_reloader_);
+	hot_reloader_->rescan();
+}
+
 void VMLModLoader::load_profile() {
 	if (profile_loaded_) {
 		return;
@@ -799,12 +909,19 @@ void VMLModLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("install_mod_from_zip", "zip_path"), &VMLModLoader::install_mod_from_zip);
 	ClassDB::bind_method(D_METHOD("uninstall_mod", "mod_id"), &VMLModLoader::uninstall_mod);
 
+	ClassDB::bind_method(D_METHOD("instantiate", "id"), &VMLModLoader::instantiate);
+	ClassDB::bind_method(D_METHOD("reload_resources", "paths"), &VMLModLoader::reload_resources);
+	ClassDB::bind_method(D_METHOD("get_content_roots"), &VMLModLoader::get_content_roots);
+	ClassDB::bind_method(D_METHOD("start_hot_reload", "interval"), &VMLModLoader::start_hot_reload,
+			DEFVAL(0.5));
+
 	ADD_SIGNAL(MethodInfo("database_loaded"));
 	ADD_SIGNAL(MethodInfo("database_entry_changed", PropertyInfo(Variant::STRING, "id")));
 	ADD_SIGNAL(MethodInfo("mod_loaded", PropertyInfo(Variant::STRING, "mod_id")));
 	ADD_SIGNAL(MethodInfo("mod_unloaded", PropertyInfo(Variant::STRING, "mod_id")));
 	ADD_SIGNAL(MethodInfo("mod_enabled", PropertyInfo(Variant::STRING, "mod_id")));
 	ADD_SIGNAL(MethodInfo("mod_disabled", PropertyInfo(Variant::STRING, "mod_id")));
+	ADD_SIGNAL(MethodInfo("registry_rebuilt"));
 }
 
 } // namespace godot
