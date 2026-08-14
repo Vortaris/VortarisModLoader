@@ -5,7 +5,7 @@ Open source, no runtime dependencies.
 
 **Core idea: ids index everything — reload the resource pointer and the mod applies.**
 Every piece of moddable content is addressed by a namespaced id
-(`namespace:path`, e.g. `game:units/knight`), inspired by Minecraft
+(`namespace:path`, e.g. `game:units.knight`), inspired by Minecraft
 Fabric/Forge's Registry and Resource/Data Pack model. A mod modifies the game by
 replacing the file an id points to — no game code changes needed.
 
@@ -45,9 +45,9 @@ func _ready() -> void:
 4. Read content by id:
 
 ```gdscript
-var knight: Dictionary = VML.get_data("game:units/knight")     # JSON -> Dictionary
-var camp: PackedScene = VML.get_resource("game:scenes/camp")   # scene
-var node: Node = VML.instantiate("game:scenes/camp")           # instantiate
+var knight: Dictionary = VML.get_data("game:units.knight")     # JSON -> Dictionary
+var camp: PackedScene = VML.get_resource("game:scenes.camp")   # scene
+var node: Node = VML.instantiate("game:scenes.camp")           # instantiate
 var dmg: float = VML.invoke_hook("game:modify_damage", [10.0], 10.0)
 ```
 

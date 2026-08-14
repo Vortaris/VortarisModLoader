@@ -18,8 +18,8 @@ Change at runtime with `VML.set_database_mode("...")`; read with
 ## Reading
 
 ```gdscript
-VML.get_data("game:units/peasant")        # O(1) after preload
-VML.get_all("game:units/")                # { id: value } for a prefix
+VML.get_data("game:units.peasant")        # O(1) after preload
+VML.get_all("game:units.")                # { id: value } for a prefix
 ```
 
 ## Rewriting live
@@ -27,8 +27,8 @@ VML.get_all("game:units/")                # { id: value } for a prefix
 The repository is mutable — "reload the resource pointer" applies to live content:
 
 ```gdscript
-VML.set_data("game:units/peasant", {"name": "Peasant MK2", "health": 60})
-VML.delete_data("game:units/peasant")     # falls back to the file
+VML.set_data("game:units.peasant", {"name": "Peasant MK2", "health": 60})
+VML.delete_data("game:units.peasant")     # falls back to the file
 ```
 
 `set_data`/`delete_data` emit `database_entry_changed(id)`. Hot reload refreshes

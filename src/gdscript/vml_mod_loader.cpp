@@ -332,6 +332,75 @@ bool VMLModLoader::set_database_mode(const String &p_mode) {
 	return true;
 }
 
+Variant VMLModLoader::get(const String &p_id) const {
+	return get_data(p_id);
+}
+
+Ref<Resource> VMLModLoader::load(const String &p_id) const {
+	return get_resource(p_id);
+}
+
+bool VMLModLoader::exists(const String &p_id) const {
+	return has(p_id);
+}
+
+String VMLModLoader::get_mod_path(const String &p_mod_id) const {
+	const ModRecord *rec = find_mod(p_mod_id);
+	return rec != nullptr ? rec->root : String();
+}
+
+bool VMLModLoader::preload_database_async() {
+	pending_ids_.clear();
+	preload_index_ = 0;
+	if (database_mode_ == DatabaseMode::OFF) {
+		emit_signal("database_loaded");
+		return true;
+	}
+	for (const vortarismodloader::ResourceId &id : registry_.all_ids()) {
+		pending_ids_.push_back(id);
+	}
+	if (pending_ids_.empty()) {
+		emit_signal("database_loaded");
+		return true;
+	}
+	emit_signal("preload_progress", 0, (int)pending_ids_.size());
+	call_deferred("_process_preload_batch");
+	return true;
+}
+
+void VMLModLoader::_process_preload_batch() {
+	const size_t batch = 32;
+	const size_t end = std::min(preload_index_ + batch, pending_ids_.size());
+	for (; preload_index_ < end; preload_index_++) {
+		const vortarismodloader::ResourceId &id = pending_ids_[preload_index_];
+		const vortarismodloader::ProviderEntry *e = registry_.lookup(id);
+		if (e == nullptr) {
+			continue;
+		}
+		const String ext = e->physical_path.get_extension().to_lower();
+		const bool is_data = is_data_extension(ext);
+		if (database_mode_ == DatabaseMode::DATA && !is_data) {
+			continue;
+		}
+		Variant val;
+		if (is_data) {
+			val = vortarismodloader::LoaderBackend::load_data(e->physical_path);
+		} else {
+			val = vortarismodloader::LoaderBackend::load_resource(e->physical_path);
+		}
+		if (val.get_type() != Variant::NIL) {
+			database_.set(id, val, e->physical_path, e->mod_id);
+		}
+	}
+	emit_signal("preload_progress", (int)preload_index_, (int)pending_ids_.size());
+	if (preload_index_ >= pending_ids_.size()) {
+		pending_ids_.clear();
+		emit_signal("database_loaded");
+	} else {
+		call_deferred("_process_preload_batch");
+	}
+}
+
 VMLModLoader::DatabaseMode VMLModLoader::mode_from_string(const String &p_mode) const {
 	if (p_mode == "all") {
 		return DatabaseMode::ALL;
@@ -900,6 +969,12 @@ void VMLModLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("delete_data", "id"), &VMLModLoader::delete_data);
 	ClassDB::bind_method(D_METHOD("get_database_mode"), &VMLModLoader::get_database_mode);
 	ClassDB::bind_method(D_METHOD("set_database_mode", "mode"), &VMLModLoader::set_database_mode);
+	ClassDB::bind_method(D_METHOD("get", "id"), &VMLModLoader::get);
+	ClassDB::bind_method(D_METHOD("load", "id"), &VMLModLoader::load);
+	ClassDB::bind_method(D_METHOD("exists", "id"), &VMLModLoader::exists);
+	ClassDB::bind_method(D_METHOD("get_mod_path", "mod_id"), &VMLModLoader::get_mod_path);
+	ClassDB::bind_method(D_METHOD("preload_database_async"), &VMLModLoader::preload_database_async);
+	ClassDB::bind_method(D_METHOD("_process_preload_batch"), &VMLModLoader::_process_preload_batch);
 
 	ClassDB::bind_method(D_METHOD("finish_startup"), &VMLModLoader::finish_startup);
 	ClassDB::bind_method(D_METHOD("add_hook", "hook_id", "callable", "priority"), &VMLModLoader::add_hook,
@@ -931,6 +1006,8 @@ void VMLModLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("rescan"), &VMLModLoader::rescan);
 
 	ADD_SIGNAL(MethodInfo("database_loaded"));
+	ADD_SIGNAL(MethodInfo("preload_progress", PropertyInfo(Variant::INT, "current"),
+			PropertyInfo(Variant::INT, "total")));
 	ADD_SIGNAL(MethodInfo("database_entry_changed", PropertyInfo(Variant::STRING, "id")));
 	ADD_SIGNAL(MethodInfo("mod_loaded", PropertyInfo(Variant::STRING, "mod_id")));
 	ADD_SIGNAL(MethodInfo("mod_unloaded", PropertyInfo(Variant::STRING, "mod_id")));

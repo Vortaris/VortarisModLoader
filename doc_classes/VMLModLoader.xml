@@ -6,7 +6,7 @@
 	<description>
 		Registered at engine start (SCENE level) before any autoload, exposed to scripts as the `VML` singleton.
 
-		Content model: every piece of moddable content is addressed by a namespaced id `namespace:path` (Minecraft ResourceLocation style, e.g. `game:units/knight`). Mods stack above the base layer; a later-loaded mod wins when two providers claim the same id (override arbitration by priority, then explicit flag, then mod id).
+		Content model: every piece of moddable content is addressed by a namespaced id `namespace:path` (Minecraft ResourceLocation style, e.g. `game:units.knight`). Mods stack above the base layer; a later-loaded mod wins when two providers claim the same id (override arbitration by priority, then explicit flag, then mod id).
 
 		Three layers:
 		- Routing: id → winning physical file ([method has], [method resolve], [method get_data], [method get_resource], [method instantiate]).

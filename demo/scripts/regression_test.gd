@@ -10,6 +10,16 @@ var _fired_ok := false
 var _test_event_fired := false
 var _mod_loaded_ids: Array = []
 var _mod_unloaded := false
+var _async_progress_seen := false
+var _database_loaded_async := false
+
+
+func _on_preload_progress(_current: int, _total: int) -> void:
+	_async_progress_seen = true
+
+
+func _on_database_loaded_async() -> void:
+	_database_loaded_async = true
 
 func _on_db_entry_changed(_id: String) -> void:
 	_fired_ok = true
@@ -39,7 +49,7 @@ func _initialize() -> void:
 		failed = true
 
 	# --- T1: id lookup by implicit base scan ---
-	if not VMLTestUtil.expect(VML.has("game:units/peasant"), "T1 base id has game:units/peasant"):
+	if not VMLTestUtil.expect(VML.has("game:units.peasant"), "T1 base id has game:units.peasant"):
 		failed = true
 	if not VMLTestUtil.expect(VML.has("game:recipes"), "T1 base id has game:recipes"):
 		failed = true
@@ -47,7 +57,7 @@ func _initialize() -> void:
 		failed = true
 
 	# --- T2: get_data returns parsed Dictionary ---
-	var peasant = VML.get_data("game:units/peasant")
+	var peasant = VML.get_data("game:units.peasant")
 	if not VMLTestUtil.expect(peasant is Dictionary, "T2 get_data returns Dictionary"):
 		failed = true
 	elif not VMLTestUtil.expect_eq(peasant.get("name"), "Peasant", "T2 unit name"):
@@ -67,15 +77,15 @@ func _initialize() -> void:
 		failed = true
 
 	# --- T3b: resolve gives the physical path (peasant is not overridden) ---
-	if not VMLTestUtil.expect_eq(VML.resolve("game:units/peasant"), "res://data/game/units/peasant.json",
+	if not VMLTestUtil.expect_eq(VML.resolve("game:units.peasant"), "res://data/game/units/peasant.json",
 			"T3b resolve physical path"):
 		failed = true
 
 	# --- T3c/d: listing ---
 	if not VMLTestUtil.expect(VML.list_namespaces().has("game"), "T3c namespaces include game"):
 		failed = true
-	var ids = VML.list_ids("game:units/")
-	if not VMLTestUtil.expect(ids.has("game") and ids["game"].has("units/knight"),
+	var ids = VML.list_ids("game:units.")
+	if not VMLTestUtil.expect(ids.has("game") and ids["game"].has("units.knight"),
 			"T3d list_ids prefix filter"):
 		failed = true
 
@@ -92,16 +102,16 @@ func _initialize() -> void:
 		failed = true
 
 	# T5: mod overrides base, and the later-loaded mod wins.
-	var knight: Dictionary = VML.get_data("game:units/knight")
+	var knight: Dictionary = VML.get_data("game:units.knight")
 	if not VMLTestUtil.expect_eq(knight.get("attack"), 15,
 			"T5 mod overrides base knight (sample_mod wins over lib_mod)"):
 		failed = true
-	if not VMLTestUtil.expect(VML.resolve("game:units/knight").begins_with(
+	if not VMLTestUtil.expect(VML.resolve("game:units.knight").begins_with(
 			"res://mods-unpacked/sample_mod/"), "T5 override resolves to sample_mod"):
 		failed = true
 
 	# New content from a mod namespace.
-	if not VMLTestUtil.expect(VML.has("mymod:units/archer"), "T4 mod adds new id"):
+	if not VMLTestUtil.expect(VML.has("mymod:units.archer"), "T4 mod adds new id"):
 		failed = true
 
 	# Error surfacing.
@@ -114,7 +124,7 @@ func _initialize() -> void:
 
 	# T16: listing by namespace.
 	var by_ns = VML.list_ids()
-	if not VMLTestUtil.expect(by_ns.has("mymod") and by_ns["mymod"].has("units/archer"),
+	if not VMLTestUtil.expect(by_ns.has("mymod") and by_ns["mymod"].has("units.archer"),
 			"T16 list_ids grouped by namespace includes mod content"):
 		failed = true
 
@@ -122,17 +132,17 @@ func _initialize() -> void:
 	if not VMLTestUtil.expect_eq(VML.get_database_mode(), "data", "T19 database_mode default data"):
 		failed = true
 	# Data was preloaded into memory at startup: get_all sees it without loading.
-	var all_units = VML.get_all("game:units/")
+	var all_units = VML.get_all("game:units.")
 	if not VMLTestUtil.expect(all_units.size() == 2, "T19 get_all prefetched data resident"):
 		failed = true
 
 	# set_data overwrites live, get_data reflects it, and the signal fires.
 	_fired_ok = false
 	VML.database_entry_changed.connect(_on_db_entry_changed)
-	if not VMLTestUtil.expect(VML.set_data("game:units/peasant", {"name": "Modded Peasant"}),
+	if not VMLTestUtil.expect(VML.set_data("game:units.peasant", {"name": "Modded Peasant"}),
 			"T20 set_data returns true"):
 		failed = true
-	var modified = VML.get_data("game:units/peasant")
+	var modified = VML.get_data("game:units.peasant")
 	if not VMLTestUtil.expect_eq(modified.get("name"), "Modded Peasant",
 			"T20 get_data reflects set_data"):
 		failed = true
@@ -141,15 +151,15 @@ func _initialize() -> void:
 	VML.database_entry_changed.disconnect(_on_db_entry_changed)
 
 	# delete_data removes the override; get_data falls back to the file.
-	if not VMLTestUtil.expect(VML.delete_data("game:units/peasant"), "T21 delete_data"):
+	if not VMLTestUtil.expect(VML.delete_data("game:units.peasant"), "T21 delete_data"):
 		failed = true
-	var restored = VML.get_data("game:units/peasant")
+	var restored = VML.get_data("game:units.peasant")
 	if not VMLTestUtil.expect_eq(restored.get("name"), "Peasant", "T21 get_data falls back to file"):
 		failed = true
 
 	# Prefix query over the resident database.
-	var units = VML.get_all("game:units/")
-	if not VMLTestUtil.expect(units.has("game:units/peasant") and units.has("game:units/knight"),
+	var units = VML.get_all("game:units.")
+	if not VMLTestUtil.expect(units.has("game:units.peasant") and units.has("game:units.knight"),
 			"T22 get_all prefix filter"):
 		failed = true
 
@@ -159,6 +169,18 @@ func _initialize() -> void:
 		failed = true
 	if not VMLTestUtil.expect(VML.set_database_mode("data") and VML.get_database_mode() == "data",
 			"T23 set_database_mode back to data"):
+		failed = true
+
+	# --- convenience sugar ---
+	if not VMLTestUtil.expect_eq((VML.get("game:units.peasant") as Dictionary).get("name"),
+			"Peasant", "T31 get() alias"):
+		failed = true
+	if not VMLTestUtil.expect(VML.exists("game:units.peasant"), "T31 exists() alias"):
+		failed = true
+	if not VMLTestUtil.expect(VML.load("game:scenes.camp") is PackedScene, "T31 load() alias"):
+		failed = true
+	if not VMLTestUtil.expect_eq(VML.get_mod_path("mymod"), "res://mods-unpacked/sample_mod",
+			"T31 get_mod_path"):
 		failed = true
 
 	# --- M5: declarative hooks + mod_main entry ---
@@ -202,7 +224,7 @@ func _initialize() -> void:
 	if not VMLTestUtil.expect(VML.install_mod_from_zip("res://mods/archer_pack.zip") == OK,
 			"T11 install_mod_from_zip returns OK"):
 		failed = true
-	if not VMLTestUtil.expect(VML.has("archerpack:units/ranger"), "T11 zip mod ids indexed"):
+	if not VMLTestUtil.expect(VML.has("archerpack:units.ranger"), "T11 zip mod ids indexed"):
 		failed = true
 	if not VMLTestUtil.expect(VML.get_mod_ids().has("archerpack"), "T11 zip mod discovered"):
 		failed = true
@@ -210,21 +232,21 @@ func _initialize() -> void:
 	# T15: enable/disable state transitions.
 	if not VMLTestUtil.expect(VML.disable_mod("mymod"), "T15 disable_mod"):
 		failed = true
-	if not VMLTestUtil.expect(not VML.has("mymod:units/archer"), "T15 disabled content removed"):
+	if not VMLTestUtil.expect(not VML.has("mymod:units.archer"), "T15 disabled content removed"):
 		failed = true
 	if not VMLTestUtil.expect(VML.enable_mod("mymod"), "T15 re-enable_mod"):
 		failed = true
-	if not VMLTestUtil.expect(VML.has("mymod:units/archer"), "T15 re-enabled content back"):
+	if not VMLTestUtil.expect(VML.has("mymod:units.archer"), "T15 re-enabled content back"):
 		failed = true
 
 	# T12: dynamic unload removes ids (base fallback), reload restores.
 	if not VMLTestUtil.expect(VML.unload_mod("mymod"), "T12 unload_mod"):
 		failed = true
-	if not VMLTestUtil.expect(not VML.has("mymod:units/archer"), "T12 unload removes ids"):
+	if not VMLTestUtil.expect(not VML.has("mymod:units.archer"), "T12 unload removes ids"):
 		failed = true
 	if not VMLTestUtil.expect(VML.load_mod("mymod"), "T12 load_mod"):
 		failed = true
-	if not VMLTestUtil.expect(VML.has("mymod:units/archer"), "T12 reload restores ids"):
+	if not VMLTestUtil.expect(VML.has("mymod:units.archer"), "T12 reload restores ids"):
 		failed = true
 
 	# T17: mod_main lifecycle (loaded/unloaded signals).
@@ -242,19 +264,19 @@ func _initialize() -> void:
 	# T11b: uninstall the test zip mod so it never leaks into the next run.
 	if not VMLTestUtil.expect(VML.uninstall_mod("archerpack") == OK, "T11b uninstall zip mod"):
 		failed = true
-	if not VMLTestUtil.expect(not VML.has("archerpack:units/ranger"), "T11b zip mod removed"):
+	if not VMLTestUtil.expect(not VML.has("archerpack:units.ranger"), "T11b zip mod removed"):
 		failed = true
 
 	# --- M7: raw assets + vml:// router + hot reload ---
 	# T8: instantiate a scene by id.
-	var camp = VML.instantiate("game:scenes/camp")
+	var camp = VML.instantiate("game:scenes.camp")
 	if not VMLTestUtil.expect(camp is Node, "T8 instantiate scene by id"):
 		failed = true
 	if camp is Node:
 		camp.free()
 
 	# T9: native vml:// resource loader returns a PackedScene.
-	var via_router = load("vml://game:scenes/camp")
+	var via_router = load("vml://game:scenes.camp")
 	if not VMLTestUtil.expect(via_router is PackedScene, "T9 load('vml://...') returns PackedScene"):
 		failed = true
 
@@ -273,14 +295,14 @@ func _initialize() -> void:
 	var archer_path := "res://mods-unpacked/sample_mod/data/mymod/units/archer.json"
 	var saved_archer: String = FileAccess.get_file_as_string(archer_path)
 	FileAccess.open(archer_path, FileAccess.WRITE).store_string(
-			'{"id":"mymod:units/archer","name":"Archer X","health":99,"attack":8,"speed":6}')
+			'{"id":"mymod:units.archer","name":"Archer X","health":99,"attack":8,"speed":6}')
 	VML.reload_resources([archer_path])
-	var reloaded: Dictionary = VML.get_data("mymod:units/archer")
+	var reloaded: Dictionary = VML.get_data("mymod:units.archer")
 	if not VMLTestUtil.expect_eq(reloaded.get("name"), "Archer X", "T13 hot reload reflects file change"):
 		failed = true
 	FileAccess.open(archer_path, FileAccess.WRITE).store_string(saved_archer)
 	VML.reload_resources([archer_path])
-	var restored_archer: Dictionary = VML.get_data("mymod:units/archer")
+	var restored_archer: Dictionary = VML.get_data("mymod:units.archer")
 	if not VMLTestUtil.expect_eq(restored_archer.get("name"), "Archer", "T13 reload restores original"):
 		failed = true
 
@@ -315,5 +337,21 @@ func _initialize() -> void:
 	VML.rescan()
 	if not VMLTestUtil.expect(not VML.get_mod_ids().has(wiz_id), "T30 wizard mod removed cleanly"):
 		failed = true
+
+	# --- T32: async preload (batched across frames, progress + done signals) ---
+	_async_progress_seen = false
+	_database_loaded_async = false
+	VML.preload_progress.connect(_on_preload_progress)
+	VML.database_loaded.connect(_on_database_loaded_async)
+	if not VMLTestUtil.expect(VML.preload_database_async(), "T32 async preload starts"):
+		failed = true
+	await process_frame
+	await process_frame
+	if not VMLTestUtil.expect(_async_progress_seen, "T32 preload_progress emitted"):
+		failed = true
+	if not VMLTestUtil.expect(_database_loaded_async, "T32 database_loaded after async"):
+		failed = true
+	VML.preload_progress.disconnect(_on_preload_progress)
+	VML.database_loaded.disconnect(_on_database_loaded_async)
 
 	quit(1 if failed else 0)

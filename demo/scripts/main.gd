@@ -15,14 +15,14 @@ func _ready() -> void:
 	print("ns       -> ", VML.list_namespaces())
 
 	# Unified database: everything was preloaded at startup.
-	var units: Dictionary = VML.get_all("game:units/")
+	var units: Dictionary = VML.get_all("game:units.")
 	for id in units:
 		var u: Dictionary = units[id]
 		print("unit ", id, " -> ", u.get("name"), " (atk ", u.get("attack"), ")")
 
 	# Mutable database: rewrite a live entry in place.
-	VML.set_data("game:units/peasant", {"name": "Peasant MK2", "health": 60})
-	print("modified -> ", JSON.stringify(VML.get_data("game:units/peasant")))
+	VML.set_data("game:units.peasant", {"name": "Peasant MK2", "health": 60})
+	print("modified -> ", JSON.stringify(VML.get_data("game:units.peasant")))
 
 	# Declarative hooks: activate mod_main entries, then exercise them.
 	VML.finish_startup()

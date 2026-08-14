@@ -23,13 +23,15 @@ bool ResourceId::is_valid_path(const godot::String &p_path) {
 	if (p_path.is_empty() || p_path.length() > 256) {
 		return false;
 	}
-	if (p_path[0] == '/' || p_path[p_path.length() - 1] == '/') {
+	if (p_path[0] == '.' || p_path[p_path.length() - 1] == '.') {
 		return false;
 	}
 	for (int i = 0; i < p_path.length(); i++) {
 		const char32_t c = p_path[i];
+		// Slashes are deliberately NOT allowed: ids are dotted (`units.knight`),
+		// never file-path-like (`units/knight`).
 		const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
-				c == '_' || c == '-' || c == '.' || c == '/';
+				c == '_' || c == '-' || c == '.';
 		if (!ok) {
 			return false;
 		}

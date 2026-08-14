@@ -2,7 +2,7 @@
 
 数据驱动的 Godot 4.7 模组加载系统，用 C++ 写成 GDExtension。开源、无任何运行时依赖。
 
-**核心理念：id 索引一切，重载资源指向即生效。** 所有可 mod 内容用 `namespace:path` 唯一 id 索引（如 `game:units/knight`、`mymod:icons/archer`），借鉴 Minecraft Fabric/Forge 的 Registry 与 Resource/Data Pack 模型。mod 修改 = 替换 id 指向的资源文件，无需改游戏代码。
+**核心理念：id 索引一切，重载资源指向即生效。** 所有可 mod 内容用 `namespace:path` 唯一 id 索引（如 `game:units.knight`、`mymod:icons.archer`），借鉴 Minecraft Fabric/Forge 的 Registry 与 Resource/Data Pack 模型。mod 修改 = 替换 id 指向的资源文件，无需改游戏代码。
 
 面向组合/ECS 数据驱动游戏（系统、组件、实体都是数据），也支持传统游戏的贴图重载、模型替换、场景覆盖。
 
@@ -35,9 +35,9 @@ func _ready() -> void:
 4. 游戏侧用 id 读取内容：
 
 ```gdscript
-var knight: Dictionary = VML.get_data("game:units/knight")     # JSON -> Dictionary
-var camp: PackedScene = VML.get_resource("game:scenes/camp")   # 场景
-var node: Node = VML.instantiate("game:scenes/camp")           # 实例化
+var knight: Dictionary = VML.get_data("game:units.knight")     # JSON -> Dictionary
+var camp: PackedScene = VML.get_resource("game:scenes.camp")   # 场景
+var node: Node = VML.instantiate("game:scenes.camp")           # 实例化
 var dmg: float = VML.invoke_hook("game:modify_damage", [10.0], 10.0)  # 钩子
 ```
 
@@ -56,7 +56,7 @@ var dmg: float = VML.invoke_hook("game:modify_damage", [10.0], 10.0)  # 钩子
 
 `manifest.json` 关键字段：`namespace`（= mod id，`^[a-z0-9_]{1,32}$`）、`name`、`version_number`（semver）、`dependencies`/`optional_dependencies`（`"lib_mod"` 或 `"lib_mod@>=1.0"`）、`load_before`、`incompatibilities`、`extra.godot.main_script`。详见 [docs/mod_format.md](docs/mod_format.md)。
 
-覆盖基础资源：mod 在自身包内放 `data/game/units/knight.json` 即可覆盖 `game:units/knight`。
+覆盖基础资源：mod 在自身包内放 `data/game/units/knight.json` 即可覆盖 `game:units.knight`。
 
 ## 文档
 

@@ -57,6 +57,9 @@ public:
 	// --- content database (unified load) -------------------------------
 	/// "data" (default) preloads data files; "all" preloads every id; "off" = lazy.
 	void preload_database();
+	/// Preload in bounded batches across frames (never blocks); emits
+	/// preload_progress(current, total) and database_loaded when done.
+	bool preload_database_async();
 	/// Clear the repository and re-preload per the current mode.
 	void reload_database();
 	/// { canonical_id: value } for every loaded entry (optionally prefixed).
@@ -65,6 +68,16 @@ public:
 	bool delete_data(const String &p_id);
 	String get_database_mode() const;
 	bool set_database_mode(const String &p_mode);
+
+	// --- convenience sugar (newcomer friendly) -------------------------
+	/// Alias of get_data.
+	Variant get(const String &p_id) const;
+	/// Alias of get_resource.
+	Ref<Resource> load(const String &p_id) const;
+	/// Alias of has.
+	bool exists(const String &p_id) const;
+	/// Mod root directory ("" if unknown).
+	String get_mod_path(const String &p_mod_id) const;
 
 	// --- lifecycle / mod_main ------------------------------------------
 	/// Instantiate every enabled mod's mod_main.gd (the game calls this from a
@@ -148,6 +161,7 @@ private:
 
 	void scan_base_layer();
 	void scan_mods();
+	void _process_preload_batch();
 	String owning_mod(const String &p_path) const;
 	ModRecord *find_mod(const String &p_mod_id);
 	const ModRecord *find_mod(const String &p_mod_id) const;
@@ -176,6 +190,8 @@ private:
 			explicit_paths_;
 	std::vector<ModRecord> mods_;
 	std::vector<String> load_order_;
+	std::vector<vortarismodloader::ResourceId> pending_ids_;
+	size_t preload_index_ = 0;
 	VMLHotReloader *hot_reloader_ = nullptr;
 	bool profile_loaded_ = false;
 	bool initialized_ = false;

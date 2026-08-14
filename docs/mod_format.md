@@ -76,7 +76,7 @@ func _on_modify_damage(current: Variant, _amount: int, _weapon: String) -> Varia
 
 A mod overrides a base id by shipping a file at the **same** implicit path inside
 its own package. Example: base game has `data/game/units/knight.json` → id
-`game:units/knight`. A mod ships `data/game/units/knight.json` in its own tree →
+`game:units.knight`. A mod ships `data/game/units/knight.json` in its own tree →
 the mod's version wins (later-loaded mod wins on ties).
 
 ## Zip distribution

@@ -29,12 +29,14 @@ void collect(const godot::String &p_abs_dir, const godot::String &p_rel_path,
 			const godot::String child_rel = p_rel_path.is_empty() ? e : p_rel_path + godot::String("/") + e;
 			collect(abs, child_rel, p_ns, p_mod_id, p_priority, p_idx);
 		} else {
-			// Strip the extension -> id path.
+			// Strip the extension -> id path, then map filesystem separators to
+			// dots so ids are compact (`units.knight`), never file-path-like.
 			godot::String id_path = p_rel_path.is_empty() ? e : p_rel_path + godot::String("/") + e;
 			const int dot = id_path.rfind(".");
 			if (dot > 0) {
 				id_path = id_path.substr(0, dot);
 			}
+			id_path = id_path.replace("/", ".");
 			if (!ResourceId::is_valid_path(id_path)) {
 				continue;
 			}

@@ -1,7 +1,7 @@
 {
 	"id": "game:recipes",
 	"recipes": [
-		{ "output": "game:units/knight", "inputs": { "game:items/wood": 25, "game:items/iron": 5 } },
-		{ "output": "game:units/peasant", "inputs": { "game:items/wood": 10 } }
+		{ "output": "game:units.knight", "inputs": { "game:items.wood": 25, "game:items.iron": 5 } },
+		{ "output": "game:units.peasant", "inputs": { "game:items.wood": 10 } }
 	]
 }

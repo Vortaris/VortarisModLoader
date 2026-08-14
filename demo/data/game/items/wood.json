@@ -1,6 +1,6 @@
 {
-	"id": "game:items/wood",
+	"id": "game:items.wood",
 	"name": "Wood",
-	"icon": "game:icons/wood",
+	"icon": "game:icons.wood",
 	"stack": 64
 }

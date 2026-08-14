@@ -1,8 +1,8 @@
 {
-	"id": "mymod:units/archer",
+	"id": "mymod:units.archer",
 	"name": "Archer",
 	"health": 40,
 	"attack": 8,
 	"speed": 6,
-	"cost": { "game:items/wood": 15 }
+	"cost": { "game:items.wood": 15 }
 }

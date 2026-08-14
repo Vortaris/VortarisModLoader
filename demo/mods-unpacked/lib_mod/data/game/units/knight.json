@@ -1,5 +1,5 @@
 {
-	"id": "game:units/knight",
+	"id": "game:units.knight",
 	"name": "Knight",
 	"health": 100,
 	"attack": 9,
