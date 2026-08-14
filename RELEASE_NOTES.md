@@ -1,5 +1,31 @@
 # Release Notes
 
+## 0.2.1
+
+UX + reliability pass.
+
+### Editor
+- **VML Mods** panel lives in the left-bottom dock next to Import; **VML IDs**
+  (Registry + Loaded tabs, New/Edit popup with type dropdown) in the right dock
+  next to the Inspector. Resizable columns; mod config editor; console + status
+  feedback on every action.
+- Dependency confirmation dialogs: disabling a mod whose dependents would cascade
+  off asks first; enabling one whose deps cascade on asks too; missing-dependency
+  warnings refuse to start.
+
+### Reliability (from a focused review)
+- Cascade enable/disable with cycle guards; enable idempotence fixed so fresh zip
+  installs actually scan their content.
+- Overlay priority is derived from the dependency load order — a re-enabled mod
+  always keeps its override rank.
+- `rescan` rebuilds mod_main (no more "enabled but not loaded"); the hot reloader
+  watches newly added files; registry edits refresh the DB cache.
+- Reinstalling/upgrading a zip mod no longer deletes its own files; pure-data mods
+  without an entry point no longer show spurious errors.
+
+### Tests
+115 assertions green, repeatable.
+
 ## 0.2.0
 
 Data/content authoring layer. One addon zip now contains **all platforms**.

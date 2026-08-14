@@ -524,4 +524,10 @@ func _initialize() -> void:
 		failed = true
 	VML.enable_mod("mymod")
 
+	# --- 0.2.1: pure-data mod must not report spurious errors (no "(!)" in the UI) ---
+	VML.enable_mod("mylib")
+	if not VMLTestUtil.expect(VML.get_mod_errors("mylib").is_empty(),
+			"T45 pure-data mod has no errors"):
+		failed = true
+
 	quit(1 if failed else 0)

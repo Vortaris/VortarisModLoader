@@ -79,10 +79,8 @@ bool ManifestParser::load(const godot::String &p_json_path, ModManifest &p_out) 
 		p_out.config_schema = godot_block["config_schema"];
 	}
 
-	// Defaults.
-	if (p_out.main_script.is_empty()) {
-		p_out.main_script = "mod_main.gd";
-	}
+	// Defaults. main_script stays empty unless explicitly declared — a pure-data
+	// mod without an entry point is valid and must not look "broken".
 	if (p_out.asset_dirs.empty()) {
 		p_out.asset_dirs.push_back("assets");
 	}

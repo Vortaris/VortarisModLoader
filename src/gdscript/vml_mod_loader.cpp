@@ -1005,8 +1005,8 @@ bool VMLModLoader::activate_mod(const String &p_mod_id) {
 	if (!rec->content_scanned) {
 		scan_mod_content(*rec);
 	}
-	if (!rec->manifest.main_script.is_empty() && !rec->mod_main_instantiated) {
-		instantiate_mod_main(*rec);
+	if (!rec->mod_main_instantiated) {
+		instantiate_mod_main(*rec); // no-op for pure-data mods
 	}
 	rec->enabled = true;
 	rec->activating = false;
@@ -1302,8 +1302,8 @@ void VMLModLoader::rescan() {
 	// Re-instantiate mod_main for enabled mods (rescan destroyed them above);
 	// otherwise every mod silently becomes "enabled but not loaded".
 	for (ModRecord &rec : mods_) {
-		if (rec.enabled && !rec.mod_main_instantiated && !rec.manifest.main_script.is_empty()) {
-			instantiate_mod_main(rec);
+		if (rec.enabled && !rec.mod_main_instantiated) {
+			instantiate_mod_main(rec); // no-op for pure-data mods
 		}
 	}
 	if (hot_reloader_ != nullptr) {
@@ -1356,10 +1356,16 @@ void VMLModLoader::instantiate_mod_main(ModRecord &p_rec) {
 	if (p_rec.mod_main_instantiated) {
 		return;
 	}
-	if (p_rec.manifest.main_script.is_empty()) {
-		return;
+	String main_script = p_rec.manifest.main_script;
+	if (main_script.is_empty()) {
+		// No entry declared. A bare mod_main.gd still counts (backward compat);
+		// otherwise this is a pure-data mod — valid, nothing to instantiate.
+		if (!FileAccess::file_exists(p_rec.root + String("/mod_main.gd"))) {
+			return;
+		}
+		main_script = "mod_main.gd";
 	}
-	const String script_path = p_rec.root + String("/") + p_rec.manifest.main_script;
+	const String script_path = p_rec.root + String("/") + main_script;
 	if (!FileAccess::file_exists(script_path)) {
 		p_rec.errors.push_back(String("mod_main missing: ") + script_path);
 		return;
