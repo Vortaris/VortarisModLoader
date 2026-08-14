@@ -333,6 +333,13 @@
 
 			 mod 的 mod_main 是否已实例化。</description>
 		</method>
+		<method name="get_mod_dependents" qualifiers="const">
+			<return type="PackedStringArray" />
+			<param index="0" name="mod_id" type="String" />
+			<description>Enabled mods that depend on `mod_id` (used by the editor's disable-confirmation UI). Disabling a mod cascade-disables its dependents.
+
+			 依赖 `mod_id` 的已启用 mod（编辑器禁用确认 UI 用）。禁用某 mod 会级联禁用其依赖者。</description>
+		</method>
 		<method name="enable_mod">
 			<return type="bool" />
 			<param index="0" name="mod_id" type="String" />

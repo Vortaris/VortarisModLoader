@@ -100,9 +100,22 @@ Two layers, mirroring VortarisCSV/VortarisECS: pure C++ core (`src/core/`,
   `user://vml/registry.json`. `reroute` registers `__reroute__` at INT32_MAX and
   calls `refresh_database_entry` (erase + reload) so the DB cache follows.
 - **Editor plugin (0.2.0)**: two panels — right-dock `VML IDs` (id_editor_panel.gd,
-  next to the Inspector) edits the registry; Tools-menu `VML Mods` manages mods.
-  Note `build_node` instantiates via ClassDB and `validate` scans DB values for
-  dotted-id strings that resolve to nothing.
+  next to the Inspector) edits the registry; left-bottom-dock `VML Mods`
+  (mod_manager_panel.gd, next to Import) manages mods. `build_node` instantiates
+  via ClassDB and `validate` scans DB values for dotted-id strings that resolve
+  to nothing.
+- **Cascade enable/disable (0.2.1)**: `activate_mod` recursively enables required
+  deps; `deactivate_mod` recursively disables dependents. Guards: `activating`/
+  `disabling` on ModRecord. Idempotent check is `enabled && content_scanned`
+  (fresh zip installs must scan). Overlay priority comes from `mod_priority`
+  (load_order_ index + 1), so re-enabled mods never drift.
+- **Known limitations (documented, not bugs)**: (a) `rescan` re-topologizes
+  `load_order_`, so a runtime-installed zip mod's priority may move on rescan —
+  keep conflicting overrides in res:// mods or reinstall; (b) `load_registry`
+  only merges (never deletes entries that vanished from the file); (c) `reroute`
+  (INT32_MAX) survives a disable of the mod whose file it points at — intended
+  for runtime hot-swaps; (d) overlay sources are never removed on disable
+  (priority is load-order-derived anyway).
 - **Hooks are declarative + namespaced, never source rewriting.** The game calls
   `invoke_hook/emit_hook/check_hook` at instrumented points; mods register
   `Callable`s with `add_hook`. Handler signatures: invoke `func(current, ...args)`,
