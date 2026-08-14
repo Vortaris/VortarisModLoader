@@ -694,6 +694,20 @@ void VMLModLoader::start_hot_reload(double p_interval) {
 	hot_reloader_->rescan();
 }
 
+void VMLModLoader::rescan() {
+	// Tear down runtime state first so nothing leaks or dangles.
+	for (ModRecord &rec : mods_) {
+		destroy_mod_main(rec);
+	}
+	hooks_.clear();
+	explicit_paths_.clear();
+	scan_base_layer(); // clears registry / overlays / mods_ / load_order_
+	scan_mods();
+	database_.clear();
+	preload_database();
+	emit_signal("registry_rebuilt");
+}
+
 void VMLModLoader::load_profile() {
 	if (profile_loaded_) {
 		return;
@@ -914,6 +928,7 @@ void VMLModLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_content_roots"), &VMLModLoader::get_content_roots);
 	ClassDB::bind_method(D_METHOD("start_hot_reload", "interval"), &VMLModLoader::start_hot_reload,
 			DEFVAL(0.5));
+	ClassDB::bind_method(D_METHOD("rescan"), &VMLModLoader::rescan);
 
 	ADD_SIGNAL(MethodInfo("database_loaded"));
 	ADD_SIGNAL(MethodInfo("database_entry_changed", PropertyInfo(Variant::STRING, "id")));

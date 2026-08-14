@@ -80,6 +80,8 @@ public:
 	PackedStringArray get_content_roots() const;
 	/// Start a polling hot-reloader node (dev builds / editor).
 	void start_hot_reload(double p_interval = 0.5);
+	/// Full re-discovery + rebuild of the routing layer and database.
+	void rescan();
 
 	// --- declarative hooks ---------------------------------------------
 	bool add_hook(const String &p_hook_id, const Callable &p_callable, int p_priority = 0);

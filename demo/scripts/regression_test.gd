@@ -284,4 +284,36 @@ func _initialize() -> void:
 	if not VMLTestUtil.expect_eq(restored_archer.get("name"), "Archer", "T13 reload restores original"):
 		failed = true
 
+	# --- M8: editor plugin panel + wizard ---
+	# T29: the manager panel script instantiates (editor dock wiring).
+	var panel_script = load("res://addons/vortarismodloader/mod_manager_panel.gd")
+	var panel = panel_script.new() if panel_script else null
+	if not VMLTestUtil.expect(panel != null, "T29 mod_manager_panel instantiates"):
+		failed = true
+	if panel:
+		panel.free()
+
+	# T30: the wizard's skeleton layout produces a loadable mod after rescan.
+	var wiz_id := "test_wiz"
+	var wiz_base := "res://mods-unpacked/" + wiz_id
+	DirAccess.make_dir_recursive_absolute(wiz_base + "/data/" + wiz_id)
+	FileAccess.open(wiz_base + "/manifest.json", FileAccess.WRITE).store_string(
+			'{"name":"Test Wizard","namespace":"%s","version_number":"1.0.0","extra":{"godot":{}}}' % wiz_id)
+	FileAccess.open(wiz_base + "/data/%s/unit.json" % wiz_id, FileAccess.WRITE).store_string(
+			'{"id":"%s:unit","name":"Wiz Unit","health":10}' % wiz_id)
+	VML.rescan()
+	if not VMLTestUtil.expect(VML.get_mod_ids().has(wiz_id), "T30 rescan finds wizard mod"):
+		failed = true
+	if not VMLTestUtil.expect(VML.has(wiz_id + ":unit"), "T30 wizard mod content indexed"):
+		failed = true
+
+	# Cleanup the wizard test mod (res:// mods can't be uninstall_mod'd).
+	DirAccess.remove_absolute(wiz_base + "/data/%s/unit.json" % wiz_id)
+	DirAccess.remove_absolute(wiz_base + "/data/%s" % wiz_id)
+	DirAccess.remove_absolute(wiz_base + "/manifest.json")
+	DirAccess.remove_absolute(wiz_base)
+	VML.rescan()
+	if not VMLTestUtil.expect(not VML.get_mod_ids().has(wiz_id), "T30 wizard mod removed cleanly"):
+		failed = true
+
 	quit(1 if failed else 0)
