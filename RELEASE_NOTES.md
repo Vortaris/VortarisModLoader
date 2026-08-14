@@ -1,8 +1,8 @@
 # Release Notes
 
-## 0.1.0 (unreleased)
+## 0.1.0
 
-First public milestone build of VortarisModLoader.
+First public release of VortarisModLoader.
 
 ### Core
 

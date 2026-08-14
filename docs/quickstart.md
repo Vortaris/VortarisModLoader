@@ -48,8 +48,8 @@ var dmg: float = VML.invoke_hook("game:modify_damage", [base, weapon], base)
 
 ## Write a mod
 
-Create `res://mods-unpacked/<mod_id>/` — use the editor wizard (VML Mods dock →
-Create Mod) or by hand:
+Create `res://mods-unpacked/<mod_id>/` — use the editor wizard (Editor > Tools →
+"VML Mods" dock → Create Mod) or by hand:
 
 ```
 mymod/

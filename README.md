@@ -17,7 +17,8 @@ all data) and traditional games alike (texture/model/scene overrides).
 - **Id-indexed content**: `namespace:path`; implicit path convention — drop a file
   at `assets/<ns>/<path>.<ext>` / `data/<ns>/<path>.<ext>` and it gets id `ns:path`.
 - **Unified content database** (optional): preload all data into an in-memory
-  repository at startup for O(1) id lookups; `set_data`/`delete_data` rewrite live.
+  repository at startup for O(1) id lookups; batched async preload
+  (`preload_database_async`); `set_data`/`delete_data` rewrite live.
 - **Declarative hooks**: hook points are ids; `invoke_hook` (chain rewrite),
   `emit_hook` (broadcast), `check_hook` (predicate). No regex source rewriting.
 - **Override arbitration**: later-loaded mods win; deterministic
@@ -26,7 +27,9 @@ all data) and traditional games alike (texture/model/scene overrides).
   load/unload of whole mods, transactional zip install.
 - **Dev hot reload**: mtime polling — edit a mod file and it applies live.
 - **Native `vml://` loading**: `load("vml://ns:path")` works in exported builds.
-- **EditorPlugin**: mod manager dock + one-click mod skeleton wizard.
+- **Beginner-friendly API**: `get`/`load`/`exists`/`get_mod_path` sugar.
+- **EditorPlugin**: off by default — open via Editor > Tools > "VML Mods"
+  (Mods/IDs/Hooks tabs) + one-click mod skeleton wizard.
 - **Cross-platform**: Windows / Linux / macOS, GitHub Actions builds + tag release.
 
 ## Quick start

@@ -15,6 +15,10 @@ file I/O — the "load everything, then ask fast" model.
 Change at runtime with `VML.set_database_mode("...")`; read with
 `VML.get_database_mode()`.
 
+For large content sets, `VML.preload_database_async()` preloads in bounded
+batches across frames (never blocks), emitting `preload_progress(current, total)`
+then `database_loaded`.
+
 ## Reading
 
 ```gdscript

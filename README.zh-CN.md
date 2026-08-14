@@ -9,13 +9,14 @@
 ## 特性
 
 - **id 索引一切**：`namespace:path` 唯一标识，命名空间防冲突；隐式路径约定——`assets/<ns>/<path>.<ext>` / `data/<ns>/<path>.<ext>` 放文件即得 id `ns:path`，零声明。
-- **统一加载数据库**：可选项，进入游戏时把数据全量预载到内存仓库，id 查询 O(1) 纯内存；`set_data`/`delete_data` 原地改写，热更可增量刷新。
+- **统一加载数据库**：可选项，进入游戏时把数据全量预载到内存仓库，id 查询 O(1) 纯内存；支持分批异步预载（`preload_database_async`）；`set_data`/`delete_data` 原地改写，热更可增量刷新。
 - **声明式钩子**：hook 点即 id，三种语义——`invoke_hook`（链式改参数/返回值）、`emit_hook`（广播）、`check_hook`（判定拦截）。无正则源码重写。
 - **覆盖仲裁**：后加载的 mod 覆盖先加载者（优先级 + 显式注册 + mod id 兜底，确定性）。
 - **运行时生命周期**：启动早期扫描（早于 autoload）、运行时动态 enable/disable/load/unload 整个 mod、zip 事务性安装。
 - **开发热重载**：mtime+size 轮询，改 mod 文件即时生效（数据/资源刷新 + 信号通知）。
 - **原生 `vml://` 加载**：`load("vml://ns:path")`，C++ 注册的 ResourceFormatLoader 在导出版也可用。
-- **EditorPlugin**：mod 管理面板（列表/启停/安装/重扫）+ 一键创建 mod 向导。
+- **易上手 API**：`get`/`load`/`exists`/`get_mod_path` 等便捷别名，几十秒上手。
+- **EditorPlugin**：默认关闭，Editor > Tools > "VML Mods" 打开 dock（Mods/IDs/Hooks 三页）+ 一键创建 mod 向导。
 - **多平台**：Windows / Linux / macOS，GitHub Actions 三平台构建与 tag 发布。
 
 ## 快速开始

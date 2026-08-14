@@ -98,6 +98,30 @@
 			<param index="0" name="mode" type="String" />
 			<description>Switch database mode and reload.</description>
 		</method>
+		<method name="get" qualifiers="const">
+			<return type="Variant" />
+			<param index="0" name="id" type="String" />
+			<description>Convenience alias of [method get_data].</description>
+		</method>
+		<method name="load" qualifiers="const">
+			<return type="Resource" />
+			<param index="0" name="id" type="String" />
+			<description>Convenience alias of [method get_resource].</description>
+		</method>
+		<method name="exists" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="id" type="String" />
+			<description>Convenience alias of [method has].</description>
+		</method>
+		<method name="get_mod_path" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="mod_id" type="String" />
+			<description>Root directory of a mod ("" if unknown).</description>
+		</method>
+		<method name="preload_database_async">
+			<return type="bool" />
+			<description>Preload in bounded batches across frames (never blocks the main loop); emits [signal preload_progress] then [signal database_loaded].</description>
+		</method>
 		<method name="finish_startup">
 			<return type="void" />
 			<description>Instantiate every enabled mod's mod_main.gd. Call once from a bootstrap autoload's _ready.</description>
@@ -226,6 +250,11 @@
 	<signals>
 		<signal name="database_loaded">
 			<description>Emitted after a full database preload.</description>
+		</signal>
+		<signal name="preload_progress">
+			<param index="0" name="current" type="int" />
+			<param index="1" name="total" type="int" />
+			<description>Emitted by [method preload_database_async] as batches complete.</description>
 		</signal>
 		<signal name="database_entry_changed">
 			<param index="0" name="id" type="String" />

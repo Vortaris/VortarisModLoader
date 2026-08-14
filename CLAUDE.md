@@ -75,6 +75,15 @@ Two layers, mirroring VortarisCSV/VortarisECS: pure C++ core (`src/core/`,
 - **Data lives in `ContentDatabase`, not the filesystem.** After a preload pass,
   `get_data` is an O(1) hash hit; `set_data`/`delete_data` rewrite live entries.
   Mods and hot reload refresh the database incrementally.
+  `preload_database_async()` preloads in 32-id batches via `call_deferred`
+  (`preload_progress` + `database_loaded`); the `_process_preload_batch` method is
+  bound for that deferred chain.
+- **Ids are dotted, never slashed.** `game:units.knight`, not `game:units/knight`.
+  `ResourceId::is_valid_path` rejects `/`; the implicit Scanner maps filesystem
+  separators to dots (`assets/<ns>/<sub>/<name>.<ext>` -> id `ns:sub.name`).
+  `list_ids`/`get_all` prefix filters use the dotted form (`"game:units."`).
+- **Convenience sugar exists**: `get`/`load`/`exists` are thin aliases of
+  `get_data`/`get_resource`/`has`; `get_mod_path` returns a mod's root dir.
 - **Hooks are declarative + namespaced, never source rewriting.** The game calls
   `invoke_hook/emit_hook/check_hook` at instrumented points; mods register
   `Callable`s with `add_hook`. Handler signatures: invoke `func(current, ...args)`,
