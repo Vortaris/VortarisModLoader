@@ -199,6 +199,7 @@ private:
 		Node *mod_main_node = nullptr;
 		bool from_zip = false; // installed into user://vml/mods
 		bool activating = false; // recursion guard for cascade-enable
+		bool disabling = false; // recursion guard for cascade-disable
 		std::vector<String> errors;
 	};
 
@@ -210,6 +211,8 @@ private:
 
 	void scan_base_layer();
 	void scan_mods();
+	/// Overlay priority from the load order (base=0, first mod=1, ...). -1 if absent.
+	int mod_priority(const String &p_mod_id) const;
 	void _process_preload_batch();
 	void log_verbose(const String &p_msg) const;
 	bool is_reserved(const vortarismodloader::ResourceId &p_id) const;

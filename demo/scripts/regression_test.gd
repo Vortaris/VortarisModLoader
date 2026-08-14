@@ -497,4 +497,17 @@ func _initialize() -> void:
 		failed = true
 	VML.enable_mod("mylib")
 
+	# --- 0.2.1: cascade disable (dependents go off too) ---
+	VML.enable_mod("mymod")
+	VML.enable_mod("mylib")
+	if not VMLTestUtil.expect(VML.disable_mod("mylib"), "T43 cascade disable mylib"):
+		failed = true
+	if not VMLTestUtil.expect(not VML.is_mod_enabled("mylib") and not VML.is_mod_enabled("mymod"),
+			"T43 dependent mymod also disabled"):
+		failed = true
+	if not VMLTestUtil.expect(VML.enable_mod("mylib") and VML.is_mod_enabled("mylib"),
+			"T43 mylib re-enable after cascade"):
+		failed = true
+	VML.enable_mod("mymod")
+
 	quit(1 if failed else 0)

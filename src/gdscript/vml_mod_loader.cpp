@@ -860,10 +860,23 @@ bool VMLModLoader::is_mod_loaded(const String &p_mod_id) const {
 	return rec != nullptr && rec->mod_main_instantiated;
 }
 
+int VMLModLoader::mod_priority(const String &p_mod_id) const {
+	for (int i = 0; i < (int)load_order_.size(); i++) {
+		if (load_order_[i] == p_mod_id) {
+			return i + 1; // base is 0
+		}
+	}
+	return -1;
+}
+
 void VMLModLoader::scan_mod_content(ModRecord &p_rec) {
-	int pri = overlays_.priority_of(p_rec.manifest.id);
+	// Priority comes from the dependency-sorted load order, so a re-enabled mod
+	// always lands at the same priority it had at boot (never appended at the end).
+	int pri = mod_priority(p_rec.manifest.id);
 	if (pri < 0) {
 		pri = overlays_.add_source(p_rec.manifest.id, false);
+	} else {
+		overlays_.add_source(p_rec.manifest.id, false);
 	}
 	for (const String &dir : p_rec.manifest.asset_dirs) {
 		vortarismodloader::Scanner::scan_implicit_dir(p_rec.root + String("/") + dir,
@@ -965,12 +978,37 @@ bool VMLModLoader::deactivate_mod(const String &p_mod_id) {
 		return false;
 	}
 	if (!rec->enabled) {
-		return true;
+		return true; // idempotent
 	}
-	if (has_active_dependents(p_mod_id)) {
-		rec->errors.push_back(String("cannot disable '") + p_mod_id + String("': active mods depend on it"));
-		return false;
+	if (rec->disabling) {
+		return false; // dependency-cycle guard
 	}
+	rec->disabling = true;
+	// Cascade-disable mods that depend on this one first, so toggling a mod off
+	// always works (its dependents go off with it) and can never strand a
+	// half-broken dependency chain.
+	for (const ModRecord &m : mods_) {
+		if (!m.enabled || m.manifest.id == p_mod_id) {
+			continue;
+		}
+		bool depends = false;
+		for (const String &dep : m.manifest.deps) {
+			String dep_id, op, want;
+			vortarismodloader::DependencyGraph::parse_dependency(dep, dep_id, op, want);
+			if (dep_id == p_mod_id) {
+				depends = true;
+				break;
+			}
+		}
+		if (depends && !deactivate_mod(m.manifest.id)) {
+			rec->errors.push_back(String("cannot disable '") + p_mod_id + String("': '") + m.manifest.id +
+					String("' refused"));
+			rec->disabling = false;
+			return false;
+		}
+	}
+	rec->disabling = false;
+
 	hooks_.remove_mod(p_mod_id);
 	destroy_mod_main(*rec);
 	registry_.remove_mod(p_mod_id);
