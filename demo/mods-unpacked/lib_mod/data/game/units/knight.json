@@ -1,0 +1,8 @@
+{
+	"id": "game:units/knight",
+	"name": "Knight",
+	"health": 100,
+	"attack": 9,
+	"speed": 3,
+	"cost": {}
+}

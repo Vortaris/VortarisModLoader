@@ -1,0 +1,9 @@
+{
+	"name": "Lib Mod",
+	"namespace": "mylib",
+	"version_number": "1.2.0",
+	"description": "Shared library mod; also overrides the base knight (loses to sample_mod in load order).",
+	"extra": {
+		"godot": {}
+	}
+}

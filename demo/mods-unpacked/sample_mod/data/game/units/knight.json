@@ -1,0 +1,8 @@
+{
+	"id": "game:units/knight",
+	"name": "Knight",
+	"health": 150,
+	"attack": 15,
+	"speed": 3,
+	"cost": { "game:items/wood": 25, "mymod:items/iron": 5 }
+}

@@ -1,0 +1,13 @@
+{
+	"name": "Sample Mod",
+	"namespace": "mymod",
+	"version_number": "1.0.0",
+	"description": "Adds archer units, an iron item, and overrides the base knight.",
+	"website_url": "",
+	"dependencies": ["mylib"],
+	"extra": {
+		"godot": {
+			"main_script": "mod_main.gd"
+		}
+	}
+}

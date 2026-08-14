@@ -1,0 +1,8 @@
+{
+	"name": "Cycle A",
+	"namespace": "cycle_a",
+	"version_number": "1.0.0",
+	"description": "Deliberately cyclic dependency fixture.",
+	"dependencies": ["cycle_b"],
+	"extra": { "godot": {} }
+}

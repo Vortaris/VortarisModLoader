@@ -1,0 +1,7 @@
+{
+	"name": "Bad Mod",
+	"namespace": "BadMod",
+	"version_number": "1.0.0",
+	"description": "Invalid namespace (uppercase) fixture: must be rejected cleanly.",
+	"extra": { "godot": {} }
+}
