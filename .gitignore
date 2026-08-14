@@ -1,0 +1,39 @@
+# ─── Godot 4 ────────────────────────────────────────────────────────────────
+.godot/
+# Godot import sidecar (stale artifacts; source assets would carry their own)
+*.obj.import
+# NOTE: *.uid files ARE committed (Godot 4.4+ recommends committing them).
+
+# ─── Build artifacts (GDExtension / SCons) ─────────────────────────────────
+.sconsign.dblite
+src/gen/*
+!src/gen/.gitkeep
+*.obj
+*.o
+*.os
+*.a
+*.lib
+*.exp
+*.dll
+*.dylib
+*.so
+*.exe
+demo/addons/*/bin/*
+!demo/addons/*/bin/.gitkeep
+
+# ─── godot-cpp external dependency (not a submodule) ───────────────────────
+godot-cpp/
+
+# ─── IDE / editors ─────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.code-workspace
+cmake-build-*/
+
+# ─── OS ────────────────────────────────────────────────────────────────────
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ─── Temp packaging staging dirs ───────────────────────────────────────────
+dist/_*/
