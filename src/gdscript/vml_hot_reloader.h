@@ -28,6 +28,8 @@ private:
 	vortarismodloader::ChangeWatcher watcher_;
 	double poll_interval_ = 0.5;
 	double elapsed_ = 0.0;
+	double rescan_interval_ = 5.0; // re-seed dirs so newly added files are watched
+	double rescan_timer_ = 0.0;
 };
 
 } // namespace godot

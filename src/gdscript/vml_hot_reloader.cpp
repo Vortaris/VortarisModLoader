@@ -33,6 +33,11 @@ void VMLHotReloader::_process(double p_delta) {
 		return;
 	}
 	elapsed_ = 0.0;
+	rescan_timer_ += poll_interval_;
+	if (rescan_timer_ >= rescan_interval_) {
+		rescan_timer_ = 0.0;
+		rescan(); // re-seed dirs so files added after startup get watched too
+	}
 	const std::vector<godot::String> changed = watcher_.poll();
 	if (changed.empty()) {
 		return;

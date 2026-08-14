@@ -108,6 +108,22 @@ void VMLModLoader::scan_mods() {
 
 	// 3) User profile overrides the default enabled state.
 	load_profile();
+	// Enforce dependency consistency from the profile: a mod whose required dep
+	// is disabled gets disabled too (matches runtime cascade-enable semantics).
+	for (ModRecord &rec : mods_) {
+		if (!rec.enabled) {
+			continue;
+		}
+		for (const String &dep : rec.manifest.deps) {
+			String dep_id, op, want;
+			vortarismodloader::DependencyGraph::parse_dependency(dep, dep_id, op, want);
+			if (!is_mod_enabled(dep_id)) {
+				rec.enabled = false;
+				rec.errors.push_back(String("dependency disabled: ") + dep_id);
+				break;
+			}
+		}
+	}
 
 	// 4) Dependency-sorted load order (only valid mods participate).
 	std::vector<String> order;
@@ -372,6 +388,7 @@ bool VMLModLoader::set_registry_entry(const String &p_id, const String &p_path, 
 	registry_map_[{ rid.ns, rid.path }] = RegistryEntry{ p_path, p_type, p_description };
 	// Base-layer explicit route: priority 0, so any mod provider (priority > 0) overrides it.
 	registry_.add(rid, vortarismodloader::ProviderEntry{ "__registry__", p_path, 0, true });
+	refresh_database_entry(rid); // stale DB cache must follow the new route
 	log_verbose(String("registry entry: ") + p_id + String(" -> ") + p_path);
 	return true;
 }
@@ -415,6 +432,7 @@ bool VMLModLoader::remove_registry_entry(const String &p_id) {
 	}
 	registry_.remove_provider(rid, "__registry__", it->second.path);
 	registry_map_.erase(it);
+	refresh_database_entry(rid);
 	return true;
 }
 
@@ -494,6 +512,9 @@ bool VMLModLoader::clear_reroute(const String &p_id) {
 }
 
 Dictionary VMLModLoader::get_config(const String &p_mod_id) const {
+	if (!vortarismodloader::ResourceId::is_valid_namespace(p_mod_id)) {
+		return Dictionary();
+	}
 	Ref<FileAccess> f = FileAccess::open(String("user://vml/configs/") + p_mod_id + String(".json"), FileAccess::READ);
 	if (f.is_null()) {
 		return Dictionary();
@@ -503,6 +524,9 @@ Dictionary VMLModLoader::get_config(const String &p_mod_id) const {
 }
 
 bool VMLModLoader::set_config(const String &p_mod_id, const Dictionary &p_values) {
+	if (!vortarismodloader::ResourceId::is_valid_namespace(p_mod_id)) {
+		return false;
+	}
 	DirAccess::make_dir_recursive_absolute("user://vml/configs");
 	Ref<FileAccess> f = FileAccess::open(String("user://vml/configs/") + p_mod_id + String(".json"), FileAccess::WRITE);
 	if (f.is_null()) {
@@ -860,6 +884,24 @@ bool VMLModLoader::is_mod_loaded(const String &p_mod_id) const {
 	return rec != nullptr && rec->mod_main_instantiated;
 }
 
+PackedStringArray VMLModLoader::get_mod_dependents(const String &p_mod_id) const {
+	PackedStringArray out;
+	for (const ModRecord &rec : mods_) {
+		if (!rec.enabled || rec.manifest.id == p_mod_id) {
+			continue;
+		}
+		for (const String &dep : rec.manifest.deps) {
+			String dep_id, op, want;
+			vortarismodloader::DependencyGraph::parse_dependency(dep, dep_id, op, want);
+			if (dep_id == p_mod_id) {
+				out.push_back(rec.manifest.id);
+				break;
+			}
+		}
+	}
+	return out;
+}
+
 int VMLModLoader::mod_priority(const String &p_mod_id) const {
 	for (int i = 0; i < (int)load_order_.size(); i++) {
 		if (load_order_[i] == p_mod_id) {
@@ -916,27 +958,12 @@ void VMLModLoader::destroy_mod_main(ModRecord &p_rec) {
 	p_rec.mod_main_instantiated = false;
 }
 
-bool VMLModLoader::has_active_dependents(const String &p_mod_id) const {
-	for (const ModRecord &rec : mods_) {
-		if (!rec.enabled) {
-			continue;
-		}
-		for (const String &dep : rec.manifest.deps) {
-			String dep_id, op, want;
-			vortarismodloader::DependencyGraph::parse_dependency(dep, dep_id, op, want);
-			if (dep_id == p_mod_id) {
-				return true;
-			}
-		}
-	}
-	return false;
-}
-
 bool VMLModLoader::activate_mod(const String &p_mod_id) {
 	ModRecord *rec = find_mod(p_mod_id);
 	if (rec == nullptr) {
 		return false;
 	}
+	rec->errors.clear(); // a fresh activate starts clean; failures repopulate it
 	if (rec->enabled && rec->content_scanned) {
 		return true; // idempotent (a fresh install has enabled=true but no scan yet)
 	}
@@ -969,6 +996,9 @@ bool VMLModLoader::activate_mod(const String &p_mod_id) {
 	print_line(String("VML: mod '") + p_mod_id + String("' enabled"));
 	log_verbose(String("stacked content, mod_main instantiated"));
 	emit_signal("mod_enabled", p_mod_id);
+	if (hot_reloader_ != nullptr) {
+		hot_reloader_->rescan(); // watch the newly enabled content tree
+	}
 	return true;
 }
 
@@ -977,6 +1007,7 @@ bool VMLModLoader::deactivate_mod(const String &p_mod_id) {
 	if (rec == nullptr) {
 		return false;
 	}
+	rec->errors.clear(); // a fresh deactivate starts clean
 	if (!rec->enabled) {
 		return true; // idempotent
 	}
@@ -1020,6 +1051,9 @@ bool VMLModLoader::deactivate_mod(const String &p_mod_id) {
 	log_verbose("hooks removed, content dropped");
 	emit_signal("mod_unloaded", p_mod_id);
 	emit_signal("mod_disabled", p_mod_id);
+	if (hot_reloader_ != nullptr) {
+		hot_reloader_->rescan(); // drop the disabled mod's dirs from the watcher
+	}
 	return true;
 }
 
@@ -1045,8 +1079,20 @@ Error VMLModLoader::install_mod_from_zip(const String &p_zip_path) {
 	if (err != OK) {
 		return err;
 	}
-	if (find_mod(m.id) != nullptr) {
-		// The zip was already extracted; remove the orphaned copy.
+	if (ModRecord *existing = find_mod(m.id)) {
+		if (existing->from_zip) {
+			// Reinstall/upgrade in place: keep the freshly extracted copy, refresh the record.
+			deactivate_mod(m.id);
+			existing->root = String("user://vml/mods/") + m.id;
+			existing->manifest = m;
+			existing->from_zip = true;
+			existing->enabled = true;
+			existing->content_scanned = false;
+			existing->mod_main_instantiated = false;
+			existing->errors.clear();
+			return activate_mod(m.id) ? OK : ERR_UNAVAILABLE;
+		}
+		// res:// (unpacked) already provides this id — unpacked wins; drop the new copy.
 		vortarismodloader::ZipInstaller::uninstall(String("user://vml/mods/") + m.id, "user://vml/trash");
 		return ERR_ALREADY_EXISTS;
 	}
@@ -1079,6 +1125,9 @@ Error VMLModLoader::uninstall_mod(const String &p_mod_id) {
 			mods_.end());
 	save_profile();
 	print_line(String("VML: uninstalled mod '") + p_mod_id + String("'"));
+	if (hot_reloader_ != nullptr) {
+		hot_reloader_->rescan();
+	}
 	return err;
 }
 
@@ -1232,6 +1281,16 @@ void VMLModLoader::rescan() {
 	scan_mods();
 	database_.clear();
 	preload_database();
+	// Re-instantiate mod_main for enabled mods (rescan destroyed them above);
+	// otherwise every mod silently becomes "enabled but not loaded".
+	for (ModRecord &rec : mods_) {
+		if (rec.enabled && !rec.mod_main_instantiated && !rec.manifest.main_script.is_empty()) {
+			instantiate_mod_main(rec);
+		}
+	}
+	if (hot_reloader_ != nullptr) {
+		hot_reloader_->rescan();
+	}
 	emit_signal("registry_rebuilt");
 }
 
@@ -1284,6 +1343,7 @@ void VMLModLoader::instantiate_mod_main(ModRecord &p_rec) {
 	}
 	const String script_path = p_rec.root + String("/") + p_rec.manifest.main_script;
 	if (!FileAccess::file_exists(script_path)) {
+		p_rec.errors.push_back(String("mod_main missing: ") + script_path);
 		return;
 	}
 	Ref<GDScript> script = ResourceLoader::get_singleton()->load(script_path);
@@ -1315,9 +1375,12 @@ void VMLModLoader::finish_startup() {
 	// Load the persisted content registry: built-in res:// first, then user overrides.
 	load_registry("res://registry.json");
 	load_registry("user://vml/registry.json");
-	for (ModRecord &rec : mods_) {
-		if (rec.enabled) {
-			instantiate_mod_main(rec);
+	// Instantiate mod_main in dependency order (a dependent may rely on hooks/data
+	// registered by its dependencies during _init).
+	for (const String &id : load_order_) {
+		ModRecord *rec = find_mod(id);
+		if (rec != nullptr && rec->enabled) {
+			instantiate_mod_main(*rec);
 		}
 	}
 }
@@ -1483,6 +1546,7 @@ void VMLModLoader::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("is_mod_enabled", "mod_id"), &VMLModLoader::is_mod_enabled);
 	ClassDB::bind_method(D_METHOD("is_mod_loaded", "mod_id"), &VMLModLoader::is_mod_loaded);
+	ClassDB::bind_method(D_METHOD("get_mod_dependents", "mod_id"), &VMLModLoader::get_mod_dependents);
 	ClassDB::bind_method(D_METHOD("enable_mod", "mod_id"), &VMLModLoader::enable_mod);
 	ClassDB::bind_method(D_METHOD("disable_mod", "mod_id"), &VMLModLoader::disable_mod);
 	ClassDB::bind_method(D_METHOD("load_mod", "mod_id"), &VMLModLoader::load_mod);

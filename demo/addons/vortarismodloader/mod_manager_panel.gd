@@ -16,6 +16,8 @@ var _config_text: TextEdit
 var _config_status: Label
 var _config_error: Label
 var _config_mod_id := ""
+var _confirm_dlg: ConfirmationDialog
+var _pending_disable_id := ""
 
 
 func _ready() -> void:
@@ -58,6 +60,7 @@ func _ready() -> void:
 	_wizard.mod_created.connect(_on_mod_created)
 
 	_build_config_dialog()
+	_build_confirm_dialog()
 
 	refresh()
 
@@ -192,6 +195,14 @@ func _on_reload() -> void:
 	refresh()
 
 
+func _build_confirm_dialog() -> void:
+	_confirm_dlg = ConfirmationDialog.new()
+	_confirm_dlg.ok_button_text = "Disable"
+	_confirm_dlg.cancel_button_text = "Cancel"
+	add_child(_confirm_dlg)
+	_confirm_dlg.confirmed.connect(_on_confirm_disable)
+
+
 func _on_toggle_selected() -> void:
 	var id := _selected_mod_id()
 	if id.is_empty():
@@ -201,19 +212,40 @@ func _on_toggle_selected() -> void:
 		return
 	_last_mod_id = id
 	if VML.is_mod_enabled(id):
-		var ok := VML.disable_mod(id)
-		print("VML: disable_mod(", id, ") -> ", ok)
-		if ok:
-			_status.text = "disabled %s" % id
-		else:
-			_status.text = "cannot disable %s — %s" % [id, " · ".join(VML.get_mod_errors(id))]
+		# Dependent mods would be cascade-disabled too — ask first.
+		var dependents := VML.get_mod_dependents(id)
+		if dependents.size() > 0:
+			_pending_disable_id = id
+			_confirm_dlg.dialog_text = "Disable '%s'?\nThis will also disable:\n%s" % [id, "\n".join(dependents)]
+			_confirm_dlg.popup_centered(Vector2(440, 260))
+			return
+		_do_disable(id)
 	else:
-		var ok := VML.enable_mod(id)
-		print("VML: enable_mod(", id, ") -> ", ok)
-		if ok:
-			_status.text = "enabled %s" % id
-		else:
-			_status.text = "cannot enable %s — %s" % [id, " · ".join(VML.get_mod_errors(id))]
+		_do_enable(id)
+
+
+func _on_confirm_disable() -> void:
+	_do_disable(_pending_disable_id)
+	_pending_disable_id = ""
+
+
+func _do_disable(id: String) -> void:
+	var ok := VML.disable_mod(id)
+	print("VML: disable_mod(", id, ") -> ", ok)
+	if ok:
+		_status.text = "disabled %s" % id
+	else:
+		_status.text = "cannot disable %s — %s" % [id, " · ".join(VML.get_mod_errors(id))]
+	refresh()
+
+
+func _do_enable(id: String) -> void:
+	var ok := VML.enable_mod(id)
+	print("VML: enable_mod(", id, ") -> ", ok)
+	if ok:
+		_status.text = "enabled %s" % id
+	else:
+		_status.text = "cannot enable %s — %s" % [id, " · ".join(VML.get_mod_errors(id))]
 	refresh()
 
 

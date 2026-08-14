@@ -164,6 +164,8 @@ public:
 	PackedStringArray get_mod_errors(const String &p_mod_id) const;
 	bool is_mod_enabled(const String &p_mod_id) const;
 	bool is_mod_loaded(const String &p_mod_id) const;
+	/// Enabled mods that depend on `p_mod_id` (for disable-confirmation UI).
+	PackedStringArray get_mod_dependents(const String &p_mod_id) const;
 
 	// --- mod lifecycle (M6: runtime load/unload + zip install) ---------
 	/// Activate: stack content, instantiate mod_main, register hooks.
@@ -230,7 +232,6 @@ private:
 	void destroy_mod_main(ModRecord &p_rec);
 	bool activate_mod(const String &p_mod_id);
 	bool deactivate_mod(const String &p_mod_id);
-	bool has_active_dependents(const String &p_mod_id) const;
 	void load_profile();
 	void save_profile();
 	DatabaseMode mode_from_string(const String &p_mode) const;
