@@ -9,9 +9,12 @@ Prebuild it once (`scons platform=windows target=template_debug arch=x86_64`),
 then point the plugin build at the checkout with `godot_cpp_path=`.
 
 ```bash
+# Prebuild godot-cpp once (api_version is REQUIRED by godot-cpp v10 master):
+scons platform=windows target=template_debug arch=x86_64 api_version=4.7
+
 # Build the plugin DLL (outputs to demo/addons/vortarismodloader/bin/)
 scons -j 8 platform=windows target=template_debug arch=x86_64 build_library=False \
-      godot_cpp_path=C:/Users/Administrator/Desktop/godot-cpp-master
+      api_version=4.7 godot_cpp_path=C:/Users/Administrator/Desktop/godot-cpp-master
 
 # Functional smoke (expect "=== VortarisModLoader Demo OK ===", exit 0)
 godot --headless --path demo --quit
