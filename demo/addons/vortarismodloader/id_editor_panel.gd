@@ -2,18 +2,16 @@
 extends Control
 ## VML ID editor — right dock, next to the Inspector.
 ##
-## Two tabs:
-##   Registry — edit the persisted id→resource route table (saved to
-##             user://vml/registry.json, auto-loaded at VML.finish_startup()).
-##   Loaded   — browse every id currently indexed by the loader and its status.
-##
-## New / Edit use a popup dialog; the type field is a dropdown.
+## Registry tab edits the persisted id→resource route table; Loaded tab browses
+## every id currently indexed. New/Edit use a popup; type is a dropdown.
 
 const TYPES := ["data", "scene", "script", "image", "audio", "font", "resource"]
 
 var _tree: Tree
+var _tabs: TabContainer
 var _status: Label
 var _dlg: ConfirmationDialog
+var _dlg_error: Label
 var _dlg_id: LineEdit
 var _dlg_path: LineEdit
 var _dlg_type: OptionButton
@@ -36,20 +34,20 @@ func _ready() -> void:
 	_add_btn(hbox, "Save", _on_save)
 	_add_btn(hbox, "Reload", _on_reload)
 
-	var tabs := TabContainer.new()
-	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vbox.add_child(tabs)
+	_tabs = TabContainer.new()
+	_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(_tabs)
 
 	_tree = Tree.new()
 	_setup_columns(_tree, ["ID", "Path", "Type", "Desc"], [130, 180, 60, 80])
 	_tree.name = "Registry"
 	_tree.item_selected.connect(_on_selected)
-	tabs.add_child(_tree)
+	_tabs.add_child(_tree)
 
 	var loaded := Tree.new()
 	_setup_columns(loaded, ["ID", "Path", "Provider", "Type"], [130, 180, 70, 60])
 	loaded.name = "Loaded"
-	tabs.add_child(loaded)
+	_tabs.add_child(loaded)
 	loaded.item_selected.connect(_on_loaded_selected)
 	loaded.set_meta("loaded_tree", true)
 
@@ -67,7 +65,6 @@ func _setup_columns(tree: Tree, titles: Array, widths: Array) -> void:
 	tree.set_column_titles_visible(true)
 	for i in titles.size():
 		tree.set_column_title(i, titles[i])
-		# Only the last column expands; the others are user-resizable.
 		tree.set_column_expand(i, i == titles.size() - 1)
 		tree.set_column_custom_minimum_width(i, widths[i])
 
@@ -103,14 +100,15 @@ func _build_dialog() -> void:
 	form.add_child(path_row)
 	form.add_child(_lbl("Type"))
 	_dlg_type = OptionButton.new()
-	for t in TYPES:
-		_dlg_type.add_item(t)
-	_dlg_type.add_separator()
-	_dlg_type.add_item("custom")
 	form.add_child(_dlg_type)
 	form.add_child(_lbl("Desc"))
 	_dlg_desc = LineEdit.new()
 	form.add_child(_dlg_desc)
+	_dlg_error = Label.new()
+	_dlg_error.add_theme_color_override("font_color", Color(1, 0.3, 0.3))
+	_dlg_error.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_dlg_error.custom_minimum_size = Vector2(380, 0)
+	_dlg.add_child(_dlg_error)
 	add_child(_dlg)
 	_dlg.confirmed.connect(_on_dialog_ok)
 
@@ -126,8 +124,19 @@ func refresh() -> void:
 	if not Engine.has_singleton("VML"):
 		_status.text = "VML not loaded"
 		return
+	var reg_count := VML.get_registry().size()
+	var loaded_count := _count_loaded_ids()
+	_status.text = "%d registry entries · %d ids loaded" % [reg_count, loaded_count]
 	_refresh_registry()
 	_refresh_loaded()
+
+
+func _count_loaded_ids() -> int:
+	var ids := VML.list_ids()
+	var n := 0
+	for ns in ids:
+		n += ids[ns].size()
+	return n
 
 
 func _refresh_registry() -> void:
@@ -142,7 +151,6 @@ func _refresh_registry() -> void:
 		item.set_text(2, e.get("type", ""))
 		item.set_text(3, e.get("description", ""))
 		item.set_meta("id", id)
-	_status.text = "%d registry entries" % reg.size()
 
 
 func _refresh_loaded() -> void:
@@ -152,7 +160,6 @@ func _refresh_loaded() -> void:
 	loaded.clear()
 	var root := loaded.create_item()
 	var ids := VML.list_ids()
-	var count := 0
 	for ns in ids:
 		for path in ids[ns]:
 			var full: String = str(ns) + ":" + str(path)
@@ -162,13 +169,12 @@ func _refresh_loaded() -> void:
 			item.set_text(1, info.get("path", ""))
 			item.set_text(2, info.get("provider_mod", ""))
 			item.set_text(3, info.get("type", ""))
-			count += 1
-	_status.text = "%d registry entries · %d ids loaded" % [VML.get_registry().size(), count]
 
 
 func _find_loaded_tree() -> Tree:
-	var tabs := get_child(0)
-	for child in tabs.get_children():
+	if _tabs == null:
+		return null
+	for child in _tabs.get_children():
 		if child is Tree and child.has_meta("loaded_tree"):
 			return child
 	return null
@@ -187,31 +193,52 @@ func _on_loaded_selected() -> void:
 	_selected_id = item.get_text(0) if item else ""
 
 
+func _reset_type_options() -> void:
+	_dlg_type.clear()
+	for t in TYPES:
+		_dlg_type.add_item(t)
+	_dlg_type.add_separator()
+	_dlg_type.add_item("custom")
+
+
 func _on_new() -> void:
 	_selected_id = ""
 	_dlg.title = "New ID"
 	_dlg_id.text = ""
+	_dlg_id.editable = true
 	_dlg_path.text = ""
-	_dlg_type.select(0)
 	_dlg_desc.text = ""
-	_dlg.popup_centered(Vector2(420, 240))
+	_dlg_error.text = ""
+	_reset_type_options()
+	_dlg_type.select(0)
+	_dlg.popup_centered(Vector2(420, 260))
 
 
 func _on_edit() -> void:
 	if _selected_id.is_empty():
 		return
+	var entry: Dictionary = VML.get_registry_entry(_selected_id)
+	if entry.is_empty():
+		_status.text = "not a registry entry: " + _selected_id
+		return
 	_dlg.title = "Edit ID"
 	_dlg_id.text = _selected_id
-	var entry: Dictionary = VML.get_registry_entry(_selected_id)
+	_dlg_id.editable = false # renaming would duplicate entries
 	_dlg_path.text = entry.get("path", "")
-	var t: String = entry.get("type", "")
-	var idx := _dlg_type.get_item_index(TYPES.find(t) if TYPES.has(t) else 0)
-	if TYPES.has(t):
-		_dlg_type.select(TYPES.find(t))
-	else:
-		_dlg_type.select(_dlg_type.get_item_count() - 1)  # custom
 	_dlg_desc.text = entry.get("description", "")
-	_dlg.popup_centered(Vector2(420, 240))
+	_dlg_error.text = ""
+	_reset_type_options()
+	var t: String = entry.get("type", "")
+	var idx := TYPES.find(t)
+	if idx >= 0:
+		_dlg_type.select(idx)
+	elif t.is_empty():
+		_dlg_type.select(0)
+	else:
+		# Keep real custom types: add the actual value to the dropdown.
+		_dlg_type.add_item(t)
+		_dlg_type.select(_dlg_type.get_item_count() - 1)
+	_dlg.popup_centered(Vector2(420, 260))
 
 
 func _on_delete() -> void:
@@ -221,13 +248,15 @@ func _on_delete() -> void:
 		print("VML: removed registry entry: ", _selected_id)
 		_selected_id = ""
 		refresh()
+	else:
+		_status.text = "not a registry entry: " + _selected_id
 
 
 func _on_save() -> void:
 	if not Engine.has_singleton("VML"):
 		return
 	var err := VML.save_registry("user://vml/registry.json")
-	_status.text = "saved: %s" % err
+	_status.text = "saved: %s" % error_string(err)
 	print("VML: save_registry -> ", err)
 
 
@@ -242,16 +271,31 @@ func _on_browse() -> void:
 	var fd := FileDialog.new()
 	fd.file_mode = FileDialog.FILE_MODE_OPEN_FILE
 	fd.access = FileDialog.ACCESS_RESOURCES
+	fd.exclusive = false
 	add_child(fd)
-	fd.file_selected.connect(func(p): _dlg_path.text = p)
+	fd.file_selected.connect(_on_path_picked)
+	fd.canceled.connect(func(): fd.queue_free())
 	fd.popup_centered_ratio(0.5)
+
+
+func _on_path_picked(p: String) -> void:
+	_dlg_path.text = p
+	# queue_free the FileDialog after selection too (cleanup).
+	for child in get_children():
+		if child is FileDialog:
+			child.queue_free()
 
 
 func _on_dialog_ok() -> void:
 	var id := _dlg_id.text.strip_edges()
 	var path := _dlg_path.text.strip_edges()
 	if id.is_empty() or path.is_empty():
-		_status.text = "ID and Path are required"
+		_dlg_error.text = "ID and Path are required"
+		_dlg.popup_centered(Vector2(420, 260))
+		return
+	if not _id_is_valid(id):
+		_dlg_error.text = "invalid id (namespace:path, dotted, lower-case a-z0-9_-.)"
+		_dlg.popup_centered(Vector2(420, 260))
 		return
 	var t: String = _dlg_type.get_item_text(_dlg_type.selected)
 	if t == "custom":
@@ -261,4 +305,17 @@ func _on_dialog_ok() -> void:
 		_selected_id = id
 		refresh()
 	else:
-		_status.text = "invalid id or path"
+		_dlg_error.text = "failed to set registry entry"
+		_dlg.popup_centered(Vector2(420, 260))
+
+
+func _id_is_valid(id: String) -> bool:
+	var parts := id.split(":", true, 1)
+	if parts.size() != 2 or parts[0].is_empty() or parts[1].is_empty():
+		return false
+	var re := RegEx.new()
+	re.compile("^[a-z0-9_]+$")
+	if re.search(parts[0]) == null:
+		return false
+	re.compile("^[a-zA-Z0-9_\\-\\.]+$")
+	return re.search(parts[1]) != null

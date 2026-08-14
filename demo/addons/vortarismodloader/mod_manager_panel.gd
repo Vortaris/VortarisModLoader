@@ -14,6 +14,7 @@ var _last_mod_id := ""
 var _config_dlg: ConfirmationDialog
 var _config_text: TextEdit
 var _config_status: Label
+var _config_error: Label
 var _config_mod_id := ""
 
 
@@ -40,6 +41,7 @@ func _ready() -> void:
 	_mod_tree = Tree.new()
 	_setup_columns(_mod_tree, ["Mod", "Version", "State"], [110, 60, 90])
 	_mod_tree.name = "Mods"
+	_mod_tree.item_selected.connect(_on_mod_selected)
 	tabs.add_child(_mod_tree)
 
 	_hook_tree = Tree.new()
@@ -112,18 +114,25 @@ func _refresh_mods() -> void:
 func _refresh_hooks() -> void:
 	_hook_tree.clear()
 	var root := _hook_tree.create_item()
-	for hook_id in VML.list_hooks():
-		var info: Dictionary = VML.list_hooks()[hook_id]
+	var hooks: Dictionary = VML.list_hooks()
+	for hook_id in hooks:
+		var info: Dictionary = hooks[hook_id]
 		var item := _hook_tree.create_item(root)
 		item.set_text(0, hook_id)
 		item.set_text(1, "registered")
-		item.set_text(2, "%d handler(s) by %s" % [info["count"], str(info["mods"])])
-	for point_id in VML.list_hook_points():
-		var info: Dictionary = VML.list_hook_points()[point_id]
+		item.set_text(2, "%d handler(s) by %s" % [info.get("count", 0), str(info.get("mods", []))])
+	var points: Dictionary = VML.list_hook_points()
+	for point_id in points:
+		var info: Dictionary = points[point_id]
 		var item := _hook_tree.create_item(root)
 		item.set_text(0, point_id)
 		item.set_text(1, "declared")
-		item.set_text(2, info["description"])
+		item.set_text(2, info.get("description", ""))
+
+
+func _on_mod_selected() -> void:
+	var item := _mod_tree.get_selected()
+	_last_mod_id = item.get_meta("mod_id", "") if item else ""
 
 
 func _selected_mod_id() -> String:
@@ -137,9 +146,13 @@ func _on_install_zip() -> void:
 	var fd := FileDialog.new()
 	fd.file_mode = FileDialog.FILE_MODE_OPEN_FILE
 	fd.access = FileDialog.ACCESS_FILESYSTEM
+	fd.exclusive = false # avoid "exclusive child window" clash with other dialogs
 	fd.add_filter("*.zip", "Vortaris Mod (zip)")
 	add_child(fd)
-	fd.file_selected.connect(_on_zip_selected)
+	fd.file_selected.connect(func(p: String):
+		_on_zip_selected(p)
+		fd.queue_free())
+	fd.canceled.connect(func(): fd.queue_free())
 	fd.popup_centered_ratio(0.5)
 
 
@@ -147,7 +160,7 @@ func _on_zip_selected(path: String) -> void:
 	if not Engine.has_singleton("VML"):
 		return
 	var err := VML.install_mod_from_zip(path)
-	_status.text = "install: %s" % err
+	_status.text = "install: %s" % error_string(err)
 	print("VML: install_mod_from_zip(%s) -> %s" % [path, err])
 	refresh()
 
@@ -205,18 +218,25 @@ func _build_config_dialog() -> void:
 	vbox.add_child(_config_status)
 	_config_text = TextEdit.new()
 	_config_text.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_config_text.syntax_highlighting = "json"
 	vbox.add_child(_config_text)
+	_config_error = Label.new()
+	_config_error.add_theme_color_override("font_color", Color(1, 0.3, 0.3))
+	_config_error.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(_config_error)
 	add_child(_config_dlg)
 	_config_dlg.confirmed.connect(_on_config_save)
 
 
 func _on_config() -> void:
 	var id := _selected_mod_id()
-	if id.is_empty() or not Engine.has_singleton("VML"):
+	if id.is_empty():
+		_status.text = "select a mod first"
+		return
+	if not Engine.has_singleton("VML"):
 		return
 	_config_mod_id = id
 	_config_text.text = JSON.stringify(VML.get_config(id), "  ")
+	_config_error.text = ""
 	var schema: Dictionary = VML.get_config_schema(id)
 	_config_status.text = "mod: %s  ·  config_schema: %s" % [id, "declared" if not schema.is_empty() else "none"]
 	_config_dlg.popup_centered(Vector2(480, 380))
@@ -224,8 +244,13 @@ func _on_config() -> void:
 
 func _on_config_save() -> void:
 	var parsed = JSON.parse_string(_config_text.text)
-	if parsed is Dictionary:
-		VML.set_config(_config_mod_id, parsed)
+	if not (parsed is Dictionary):
+		_config_error.text = "invalid JSON — not saved; fix the text and Save again"
+		_config_dlg.popup_centered(Vector2(480, 380))
+		return
+	if VML.set_config(_config_mod_id, parsed):
+		_status.text = "config saved for %s" % _config_mod_id
 		print("VML: config saved for ", _config_mod_id)
 	else:
-		push_error("VML: invalid config JSON for " + _config_mod_id)
+		_config_error.text = "failed to save config"
+		_config_dlg.popup_centered(Vector2(480, 380))
