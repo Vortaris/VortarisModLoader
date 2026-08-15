@@ -13,6 +13,9 @@ func _ready() -> void:
 	title = "Create Vortaris Mod"
 	ok_button_text = "Create"
 	cancel_button_text = "Cancel"
+	# Fixed, compact dialog — never auto-fills the screen on first open.
+	set_min_size(Vector2i(400, 200))
+	reset_size()
 
 	var vbox := VBoxContainer.new()
 	vbox.add_child(_label("Mod id (namespace, ^[a-z0-9_]{1,32}$):"))
@@ -50,23 +53,23 @@ func _on_confirmed() -> void:
 	var id := _id_edit.text.strip_edges()
 	if id.is_empty():
 		_error.text = "mod id is required"
-		popup_centered(Vector2(380, 260))
+		popup_centered(Vector2(400, 200))
 		return
 	var re := RegEx.new()
 	re.compile("^[a-z0-9_]{1,32}$")
 	if re.search(id) == null:
 		_error.text = "invalid id (expected ^[a-z0-9_]{1,32}$)"
-		popup_centered(Vector2(380, 260))
+		popup_centered(Vector2(400, 200))
 		return
 
 	var base := "res://mods-unpacked/" + id
 	if DirAccess.dir_exists_absolute(base):
 		_error.text = "mod already exists: " + base
-		popup_centered(Vector2(380, 260))
+		popup_centered(Vector2(400, 200))
 		return
 	if DirAccess.make_dir_recursive_absolute(base + "/assets/" + id) != OK:
 		_error.text = "cannot create dirs under res:// (read-only?)"
-		popup_centered(Vector2(380, 260))
+		popup_centered(Vector2(400, 200))
 		return
 	DirAccess.make_dir_recursive_absolute(base + "/data/" + id)
 
@@ -93,7 +96,7 @@ func _on_confirmed() -> void:
 					"extends Node\n\nfunc _init() -> void:\n\t# Register hooks / config here (attributed to this mod automatically).\n\tpass\n") \
 			or not _write(base + "/data/%s/sample.json" % id, JSON.stringify(sample, "  ")):
 		_error.text = "failed to write mod files (res:// read-only?)"
-		popup_centered(Vector2(380, 260))
+		popup_centered(Vector2(400, 200))
 		return
 
 	mod_created.emit(id)
