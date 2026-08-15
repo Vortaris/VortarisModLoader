@@ -171,11 +171,18 @@ func _ready() -> void:
 	# small and shows more when the panel is enlarged.
 	detail_panel.size_flags_vertical = Control.SIZE_FILL
 	v_split.add_child(detail_panel)
+	# Outer VBox: scrollable info area (fills the middle) + action buttons pinned
+	# to the bottom of the panel, so the buttons stay at the bottom and move with
+	# the panel as the user drags the divider to resize it.
+	var outer := VBoxContainer.new()
+	outer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	outer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	detail_panel.add_child(outer)
 	var detail_scroll := ScrollContainer.new()
-	detail_scroll.custom_minimum_size.y = 240
+	detail_scroll.custom_minimum_size.y = 200
 	detail_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	detail_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	detail_panel.add_child(detail_scroll)
+	outer.add_child(detail_scroll)
 	var detail_vbox := VBoxContainer.new()
 	detail_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	detail_scroll.add_child(detail_vbox)
@@ -211,7 +218,8 @@ func _ready() -> void:
 	errors_scroll.add_child(_detail_errors)
 
 	var actions := HBoxContainer.new()
-	detail_vbox.add_child(actions)
+	actions.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	outer.add_child(actions)
 	_enable_btn = _add_btn(actions, "Enable", _on_toggle)
 	_export_btn = _add_btn(actions, "Export PCK", _on_export_pck)
 	_uninstall_btn = _add_btn(actions, "Uninstall", _on_uninstall)
