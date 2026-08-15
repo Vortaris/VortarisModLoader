@@ -13,7 +13,20 @@
 
 namespace vortarismodloader {
 
+bool LoaderBackend::quiet_errors_ = false;
+
 namespace {
+
+// Report a data/resource load failure. In editor tooling the same files are
+// probed over and over while browsing broken mods, so gate the ERROR print and
+// fall back to the debug log (invisible unless verbose is on).
+void report_load_failure(const godot::String &p_msg) {
+	if (LoaderBackend::is_quiet_errors()) {
+		log_debug(godot::String("loader: ") + p_msg);
+		return;
+	}
+	ERR_PRINT(godot::String("VML: ") + p_msg);
+}
 
 godot::String extension_of(const godot::String &p_path) {
 	const int dot = p_path.rfind(".");
@@ -64,14 +77,20 @@ godot::Variant LoaderBackend::load_data(const godot::String &p_path) {
 	const godot::String ext = extension_of(p_path);
 	godot::Ref<godot::FileAccess> f = godot::FileAccess::open(p_path, godot::FileAccess::READ);
 	if (f.is_null()) {
-		ERR_PRINT(godot::String("VML: cannot open data file: ") + p_path);
+		report_load_failure(godot::String("cannot open data file: ") + p_path);
 		return godot::Variant();
 	}
 	const godot::String text = f->get_as_text();
 	if (ext == "json") {
-		godot::Variant parsed = godot::JSON::parse_string(text);
-		if (parsed.get_type() == godot::Variant::NIL) {
-			ERR_PRINT(godot::String("VML: invalid JSON in ") + p_path);
+		// Use the instance parse() so malformed files don't trigger the engine's own
+		// "Parse JSON failed" ERROR print — we report failures ourselves (silencable
+		// in the editor, L2). parse_string() has no quiet path.
+		godot::Ref<godot::JSON> parser;
+		parser.instantiate();
+		const godot::Error jerr = parser->parse(text);
+		const godot::Variant parsed = parser->get_data();
+		if (jerr != godot::OK) {
+			report_load_failure(godot::String("invalid JSON in ") + p_path);
 		}
 		log_debug(godot::String("loader: parse data '") + p_path + godot::String("' -> ") +
 				(parsed.get_type() == godot::Variant::DICTIONARY ? godot::String("Dictionary") :
@@ -91,7 +110,7 @@ godot::Variant LoaderBackend::load_data(const godot::String &p_path) {
 godot::Ref<godot::ImageTexture> LoaderBackend::load_image(const godot::String &p_path) {
 	godot::Ref<godot::Image> img = godot::Image::load_from_file(p_path);
 	if (img.is_null()) {
-		ERR_PRINT(godot::String("VML: cannot load image: ") + p_path);
+		report_load_failure(godot::String("cannot load image: ") + p_path);
 		return godot::Ref<godot::ImageTexture>();
 	}
 	return godot::ImageTexture::create_from_image(img);
@@ -112,7 +131,7 @@ godot::Ref<godot::Resource> LoaderBackend::load_raw_asset(const godot::String &p
 		godot::Ref<godot::FontFile> font;
 		font.instantiate();
 		if (font->load_dynamic_font(p_path) != godot::OK) {
-			ERR_PRINT(godot::String("VML: cannot load font: ") + p_path);
+			report_load_failure(godot::String("cannot load font: ") + p_path);
 			return godot::Ref<godot::Resource>();
 		}
 		return font;
@@ -132,7 +151,7 @@ godot::Ref<godot::Resource> LoaderBackend::load_resource(const godot::String &p_
 	}
 	godot::Ref<godot::Resource> res = godot::ResourceLoader::get_singleton()->load(p_path, "", p_mode);
 	if (res.is_null()) {
-		ERR_PRINT(godot::String("VML: failed to load resource: ") + p_path);
+		report_load_failure(godot::String("failed to load resource: ") + p_path);
 	} else {
 		log_debug(godot::String("loader: resource '") + p_path + godot::String("' -> ") + res->get_class());
 	}

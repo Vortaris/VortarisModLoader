@@ -69,6 +69,19 @@ func _rmtree(path: String) -> void:
 	elif FileAccess.file_exists(path):
 		DirAccess.remove_absolute(path)
 
+
+# First descendant whose Godot class matches `type_name` (used by the 0.3.1 UI
+# layout assertions to locate the main screen's TabContainer / status bar).
+func _find_first_type(node: Node, type_name: String) -> Node:
+	if node.get_class() == type_name:
+		return node
+	for c in node.get_children():
+		var found := _find_first_type(c, type_name)
+		if found != null:
+			return found
+	return null
+
+
 func _initialize() -> void:
 	var failed := false
 	VML.mod_loaded.connect(_on_mod_loaded)
@@ -1457,5 +1470,151 @@ func _initialize() -> void:
 
 	# Final F2 cleanup (the manifestless pck file was kept readable above).
 	_rmtree("user://vml/f2_pck_root")
+
+	# --- 0.3.1 M3: install_root never returns a non-scanned root ---
+	# With every configured root removed, the fallback must register user://vml/mods
+	# as a scanned root (export zip-install path) instead of silently installing into
+	# a directory scanning ignores.
+	var m3_saved_roots: Array = VML.get_mod_roots()
+	for m3_r in m3_saved_roots:
+		VML.remove_mod_root(m3_r)
+	var m3_root: String = VML.install_root()
+	if not VMLTestUtil.expect(m3_root == "user://vml/mods",
+			"M3 install_root fallback target is user://vml/mods"):
+		failed = true
+	if not VMLTestUtil.expect(VML.get_mod_roots().has(m3_root),
+			"M3 fallback target is registered as a scanned root"):
+		failed = true
+	VML.remove_mod_root("user://vml/mods")
+	for m3_r in m3_saved_roots:
+		VML.add_mod_root(m3_r)
+	var m3_again: String = VML.install_root()
+	if not VMLTestUtil.expect(m3_again.is_empty() or VML.get_mod_roots().has(m3_again),
+			"M3 install_root always returns a scanned root"):
+		failed = true
+
+	# --- 0.3.1 M1/M2/L3/L4/X1/X2: main screen UI behaviors ---
+	var M1Screen = load("res://addons/vortarismodloader/mods_main_screen.gd")
+	var m1_screen = M1Screen.new()
+	get_root().add_child(m1_screen)
+	await process_frame
+
+	# M1: an operation status message survives refresh().
+	m1_screen._set_status("M1 test message")
+	m1_screen.refresh()
+	if not VMLTestUtil.expect(m1_screen._status.text == "M1 test message",
+			"M1 operation status survives refresh()"):
+		failed = true
+	m1_screen._status_pending = false
+	m1_screen.refresh()
+	if not VMLTestUtil.expect(m1_screen._status.text != "M1 test message",
+			"M1 cleared pending lets refresh() show the default stats"):
+		failed = true
+	# Selecting a different mod clears a stale operation message (M1).
+	m1_screen._status_pending = true
+	m1_screen._status.text = "stale message"
+	var m1_first_item = m1_screen._mod_tree.get_root().get_child(0) if m1_screen._mod_tree.get_root() else null
+	if m1_first_item != null:
+		m1_screen._mod_tree.set_selected(m1_first_item, 0)
+		await process_frame
+		if not VMLTestUtil.expect(m1_screen._status.text != "stale message",
+				"M1 selecting a mod clears stale status"):
+			failed = true
+	else:
+		if not VMLTestUtil.expect(false, "M1 (no mod rows to select)"):
+			failed = true
+
+	# M2: no dead Config tab; Hooks/Content remain; the modal dialog is still wired.
+	var m2_tabs = _find_first_type(m1_screen, "TabContainer")
+	var m2_tab_names: Array = []
+	if m2_tabs != null:
+		for m2_t in m2_tabs.get_children():
+			m2_tab_names.append(str(m2_t.name))
+	if not VMLTestUtil.expect(not m2_tab_names.has("Config"),
+			"M2 dead Config tab removed (tabs: %s)" % str(m2_tab_names)):
+		failed = true
+	if not VMLTestUtil.expect(m2_tab_names.has("Hooks") and m2_tab_names.has("Content"),
+			"M2 Hooks+Content tabs remain"):
+		failed = true
+	if not VMLTestUtil.expect(m1_screen._config_dlg != null,
+			"M2 modal Config dialog still wired"):
+		failed = true
+
+	# X1: a VSeparator sits inside the main split between the panes.
+	var m2_vsep = _find_first_type(m1_screen, "VSeparator")
+	if not VMLTestUtil.expect(m2_vsep != null and m2_vsep.get_parent() is HSplitContainer,
+			"X1 VSeparator present in the mod list / details split"):
+		failed = true
+
+	# X2: the status bar is the last row, compact, single-line ellipsized.
+	var m2_vbox = m1_screen.get_child(0)
+	var m2_status_bar = m2_vbox.get_child(m2_vbox.get_child_count() - 1)
+	if not VMLTestUtil.expect(m2_status_bar is HBoxContainer,
+			"X2 last row is the status bar"):
+		failed = true
+	if not VMLTestUtil.expect(m2_status_bar.size.y <= 32,
+			"X2 status bar stays compact (h=%d)" % m2_status_bar.size.y):
+		failed = true
+	var m2_status_label = m2_status_bar.get_child(0)
+	if not VMLTestUtil.expect(m2_status_label is Label and \
+			m2_status_label.text_overrun_behavior == TextServer.OVERRUN_TRIM_ELLIPSIS and \
+			m2_status_label.clip_text,
+			"X2 status label is single-line ellipsized"):
+		failed = true
+
+	# L3: dragging an invalid mod shows a hint; a dependency-violating order keeps
+	# its rejection message visible after refresh() (M1 interplay).
+	m1_screen._mod_tree.last_dragged_mod = "BadMod"
+	m1_screen._status_pending = false
+	m1_screen._on_mods_reordered(PackedStringArray())
+	if not VMLTestUtil.expect(m1_screen._status.text.contains("cannot reorder"),
+			"L3 invalid-mod drag shows a hint"):
+		failed = true
+	m1_screen._mod_tree.last_dragged_mod = ""
+	m1_screen._status_pending = false
+	if not VMLTestUtil.expect(not VML.set_mod_order(PackedStringArray(["mymod"])),
+			"L3 dependency-violating order rejected by VML"):
+		failed = true
+	m1_screen._on_mods_reordered(PackedStringArray(["mymod"]))
+	if not VMLTestUtil.expect(m1_screen._status.text.contains("order rejected"),
+			"L3 rejected-order message survives refresh()"):
+		failed = true
+
+	# L4: a schema whose properties are all non-Dictionary falls back to JSON.
+	m1_screen._config_form_controls.clear()
+	if not VMLTestUtil.expect(not m1_screen._build_schema_form(
+			{"properties": {"a": "not-a-dict", "b": 42}}, {}),
+			"L4 all-non-Dictionary schema returns false (JSON fallback)"):
+		failed = true
+	if not VMLTestUtil.expect(m1_screen._build_schema_form(
+			{"properties": {"hp": {"type": "integer"}}}, {}),
+			"L4 valid schema still builds a form"):
+		failed = true
+
+	# --- 0.3.1 L1: placeholders display [ph], not [value] ---
+	var l1_panel = load("res://addons/vortarismodloader/id_editor_panel.gd").new()
+	get_root().add_child(l1_panel)
+	await process_frame
+	VML.set_placeholder("l1:data", "data", {"k": 7}, "L1 data placeholder")
+	VML.set_placeholder("l1:res", "image", "res://assets/game/icons/peasant.png", "L1 resource placeholder")
+	l1_panel._refresh_registry()
+	var l1_data_ph := false
+	var l1_res_ph := false
+	var l1_tree_root = l1_panel._tree.get_root()
+	if l1_tree_root != null:
+		for l1_item in l1_tree_root.get_children():
+			var l1_id: String = l1_item.get_text(0)
+			if l1_id == "l1:data":
+				l1_data_ph = l1_item.get_text(1).begins_with("[ph]")
+			elif l1_id == "l1:res":
+				l1_res_ph = l1_item.get_text(1).begins_with("[ph]")
+	VML.remove_registry_entry("l1:data")
+	VML.remove_registry_entry("l1:res")
+	if not VMLTestUtil.expect(l1_data_ph, "L1 data placeholder shows [ph]"):
+		failed = true
+	if not VMLTestUtil.expect(l1_res_ph, "L1 resource placeholder shows [ph]"):
+		failed = true
+	l1_panel.free()
+	m1_screen.free()
 
 	quit(1 if failed else 0)

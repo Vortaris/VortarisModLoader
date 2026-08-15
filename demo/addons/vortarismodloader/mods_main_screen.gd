@@ -14,6 +14,9 @@ const ModWizard = preload("mod_wizard.gd")
 ## VMLResizableTree so column headers are also drag-resizable (G4).
 class _ModListTree extends VMLResizableTree:
 	signal mods_reordered(order: PackedStringArray)
+	# The mod dragged in the most recent _drop_data, so the main screen can tell the
+	# user when it cannot be reordered (L3).
+	var last_dragged_mod := ""
 
 	func _ready() -> void:
 		super._ready() # connects the column-resize gui_input handler
@@ -26,7 +29,8 @@ class _ModListTree extends VMLResizableTree:
 		var preview := Label.new()
 		preview.text = str(item.get_text(0))
 		set_drag_preview(preview)
-		return {"vml_drag_mod": item.get_meta("mod_id", "")}
+		last_dragged_mod = str(item.get_meta("mod_id", ""))
+		return {"vml_drag_mod": last_dragged_mod}
 
 	func _can_drop_data(at_position: Vector2, data) -> bool:
 		return data is Dictionary and data.has("vml_drag_mod") \
@@ -75,12 +79,12 @@ var _detail_errors: Label
 var _enable_btn: Button
 var _export_btn: Button
 var _uninstall_btn: Button
-var _config_tab: VBoxContainer
 var _config_status: Label
 var _config_form: VBoxContainer
 var _config_text: TextEdit
 var _config_error: Label
 var _config_form_controls := {}
+var _status_pending := false
 
 # Dialogs.
 var _config_dlg: ConfirmationDialog
@@ -137,7 +141,10 @@ func _ready() -> void:
 	_mod_tree.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	left_vbox.add_child(_mod_tree)
 
-	# Right: details + hooks + content.
+	# Right: details + hooks + content. A VSeparator between the two panes gives a
+	# clear visual boundary (X1); HSplitContainer keeps the drag handle between the
+	# mod list and the separator, so both stay independently sized.
+	split.add_child(VSeparator.new())
 	var right := VBoxContainer.new()
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	split.add_child(right)
@@ -181,24 +188,9 @@ func _ready() -> void:
 	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	right.add_child(tabs)
 
-	# Config tab.
-	_config_tab = VBoxContainer.new()
-	_config_tab.name = "Config"
-	tabs.add_child(_config_tab)
-	_config_status = Label.new()
-	_config_tab.add_child(_config_status)
-	_config_form = VBoxContainer.new()
-	_config_form.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_config_tab.add_child(_config_form)
-	_config_text = TextEdit.new()
-	_config_text.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_config_tab.add_child(_config_text)
-	_config_error = Label.new()
-	_config_error.add_theme_color_override("font_color", Color(1, 0.3, 0.3))
-	_config_error.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_config_tab.add_child(_config_error)
-
-	# Hooks tab.
+	# Hooks tab. (The old Config *tab* was removed in 0.3.1 — configuration is
+	# edited through the modal "Config" dialog, `_build_config_dialog`, so a
+	# duplicate blank tab was dead UI / M2.)
 	_hook_tree = VMLResizableTree.new()
 	_setup_columns(_hook_tree, ["Hook", "Mod", "Priority", "Description"],
 			[150, 90, 60, 220])
@@ -232,12 +224,18 @@ func _ready() -> void:
 	_build_config_dialog()
 	_build_confirm_dialog()
 
-	# Bottom status bar, visually separated from the content area.
+	# Bottom status bar, visually separated from the content area. Anchored at the
+	# bottom of the screen: the bar takes only its minimum height (SIZE_SHRINK_BEGIN)
+	# so the content above fills normally, and the label is single-line + ellipsized
+	# so a long message can never stretch the row over the content (X2).
 	vbox.add_child(_make_sep())
 	var status_bar := HBoxContainer.new()
+	status_bar.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	vbox.add_child(status_bar)
 	_status = Label.new()
-	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_status.clip_text = true
+	_status.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	status_bar.add_child(_status)
 
@@ -298,7 +296,25 @@ func refresh() -> void:
 	_refresh_detail()
 	_refresh_hooks()
 	_refresh_content()
-	_status.text = "%d mods, db=%s" % [VML.get_mod_ids().size(), VML.get_database_mode()]
+	# Don't clobber the most recent operation result (M1): the default stats are
+	# only written when no operation has pinned a status message via _set_status.
+	if not _status_pending:
+		_show_stats()
+
+
+## Writes the default "N mods, db=..." line (shown on load and whenever the user
+## browses a different mod — i.e. no operation result is pending).
+func _show_stats() -> void:
+	if Engine.has_singleton("VML"):
+		_status.text = "%d mods, db=%s" % [VML.get_mod_ids().size(), VML.get_database_mode()]
+
+
+## Records an operation result in the status bar and pins it so refresh() won't
+## overwrite it with the default mod/db stats. The message stays visible until the
+## next operation reports a new result, or the user selects a different mod (M1).
+func _set_status(text: String) -> void:
+	_status.text = text
+	_status_pending = true
 
 
 func _displayed_mod_ids() -> Array:
@@ -472,10 +488,15 @@ func _refresh_content() -> void:
 
 func _on_mod_selected() -> void:
 	var item := _mod_tree.get_selected()
-	_selected_mod = item.get_meta("mod_id", "") if item else ""
+	var new_id := item.get_meta("mod_id", "") if item else ""
+	if new_id == _selected_mod:
+		return # refresh()'s programmatic re-select keeps the pending status (M1)
+	_selected_mod = new_id
+	_status_pending = false
 	_refresh_detail()
 	_refresh_hooks()
 	_refresh_content()
+	_show_stats()
 
 
 ## TabContainer.tab_changed — refresh the per-mod Hooks/Content views whenever the
@@ -490,11 +511,20 @@ func _on_tab_changed(_index: int) -> void:
 func _on_mods_reordered(order: PackedStringArray) -> void:
 	if not Engine.has_singleton("VML"):
 		return
+	# Invalid / broken mods (bad namespace, dependency cycle, ...) are not part of
+	# the load order, so reordering one is a silent no-op that visually "bounces
+	# back" on refresh. Say so instead of pretending it moved (L3).
+	var dragged := _mod_tree.last_dragged_mod
+	if not dragged.is_empty() and not VML.get_load_order().has(dragged):
+		_set_status("cannot reorder '%s' — it is not part of the load order (invalid or disabled)" % dragged)
+		refresh()
+		return
 	if VML.set_mod_order(order):
+		_set_status("order updated (%d mods)" % order.size())
 		print("VML: mod order updated: ", ", ".join(order))
 		refresh()
 	else:
-		_status.text = "order rejected (dependency order must be respected)"
+		_set_status("order rejected (dependency order must be respected)")
 		refresh()
 
 
@@ -534,7 +564,7 @@ func _on_zip_selected(path: String) -> void:
 	if not Engine.has_singleton("VML"):
 		return
 	var err := VML.install_mod_from_zip(path)
-	_status.text = "install (legacy zip): %s" % error_string(err)
+	_set_status("install (legacy zip): %s" % error_string(err))
 	print("VML: install_mod_from_zip(%s) -> %s" % [path, err])
 	refresh()
 
@@ -561,12 +591,12 @@ func _on_pck_selected(path: String) -> void:
 	var root := VML.install_root()
 	var err := _copy_file_into(path, root)
 	if err != OK:
-		_status.text = "install: %s" % error_string(err)
+		_set_status("install: %s" % error_string(err))
 		return
 	VML.rescan()
 	# Packs mount via load_resource_pack at runtime; in the editor they are staged
 	# into the writable root and picked up on the next game run.
-	_status.text = "installed %s -> %s (mounted on next run)" % [path.get_file(), root]
+	_set_status("installed %s -> %s (mounted on next run)" % [path.get_file(), root])
 	print("VML: installed pack %s -> %s" % [path, root])
 	refresh()
 
@@ -599,7 +629,7 @@ func _on_mod_created(mod_id: String) -> void:
 func _on_toggle() -> void:
 	var id := _selected_mod
 	if id.is_empty():
-		_status.text = "select a mod first"
+		_set_status("select a mod first")
 		return
 	if not Engine.has_singleton("VML"):
 		return
@@ -619,7 +649,7 @@ func _on_toggle() -> void:
 			elif not deps[dep_id]["enabled"]:
 				to_enable.append(dep_id)
 		if missing.size() > 0:
-			_status.text = "cannot enable %s — missing: %s" % [id, " · ".join(missing)]
+			_set_status("cannot enable %s — missing: %s" % [id, " · ".join(missing)])
 			return
 		if to_enable.size() > 0:
 			_ask_confirm("Enable", id, "This will also enable", to_enable)
@@ -690,9 +720,9 @@ func _do_disable(id: String) -> void:
 	var ok := VML.disable_mod(id)
 	print("VML: disable_mod(", id, ") -> ", ok)
 	if ok:
-		_status.text = "disabled %s" % id
+		_set_status("disabled %s" % id)
 	else:
-		_status.text = "cannot disable %s — %s" % [id, " · ".join(VML.get_mod_errors(id))]
+		_set_status("cannot disable %s — %s" % [id, " · ".join(VML.get_mod_errors(id))])
 	refresh()
 
 
@@ -700,16 +730,16 @@ func _do_enable(id: String) -> void:
 	var ok := VML.enable_mod(id)
 	print("VML: enable_mod(", id, ") -> ", ok)
 	if ok:
-		_status.text = "enabled %s" % id
+		_set_status("enabled %s" % id)
 	else:
-		_status.text = "cannot enable %s — %s" % [id, " · ".join(VML.get_mod_errors(id))]
+		_set_status("cannot enable %s — %s" % [id, " · ".join(VML.get_mod_errors(id))])
 	refresh()
 
 
 func _do_uninstall(id: String) -> void:
 	var err := VML.uninstall_mod(id)
 	print("VML: uninstall_mod(", id, ") -> ", err)
-	_status.text = "uninstall %s: %s" % [id, error_string(err)]
+	_set_status("uninstall %s: %s" % [id, error_string(err)])
 	_selected_mod = ""
 	refresh()
 
@@ -769,10 +799,12 @@ func _build_schema_form(schema: Dictionary, values: Dictionary) -> bool:
 	var props: Variant = schema.get("properties")
 	if props is not Dictionary or (props as Dictionary).is_empty():
 		return false
+	var built_any := false
 	for key in props:
 		var p: Variant = props[key]
 		if p is not Dictionary:
 			continue
+		built_any = true
 		var type := String((p as Dictionary).get("type", "string"))
 		var label := Label.new()
 		label.text = str(key)
@@ -807,7 +839,10 @@ func _build_schema_form(schema: Dictionary, values: Dictionary) -> bool:
 			ctl = le
 		_config_form.add_child(ctl)
 		_config_form_controls[str(key)] = ctl
-	return true
+	# Every property was a non-Dictionary value — a malformed schema would render an
+	# empty form that then saved a stale JSON text. Report "no usable schema" so the
+	# caller falls back to JSON text editing (L4).
+	return built_any
 
 
 func _on_config_save() -> void:
@@ -831,7 +866,7 @@ func _on_config_save() -> void:
 			return
 		values = parsed
 	if VML.set_config(_selected_mod, values):
-		_status.text = "config saved for %s" % _selected_mod
+		_set_status("config saved for %s" % _selected_mod)
 		print("VML: config saved for ", _selected_mod)
 	else:
 		_config_error.text = "failed to save config"
@@ -843,11 +878,11 @@ func _on_config_save() -> void:
 func _on_export_pck() -> void:
 	var id := _selected_mod
 	if id.is_empty() or not Engine.has_singleton("VML"):
-		_status.text = "select a mod first"
+		_set_status("select a mod first")
 		return
 	var root := VML.get_mod_path(id)
 	if root.is_empty():
-		_status.text = "cannot find mod root for " + id
+		_set_status("cannot find mod root for " + id)
 		return
 	var fd := FileDialog.new()
 	fd.file_mode = FileDialog.FILE_MODE_SAVE_FILE
@@ -866,10 +901,10 @@ func _on_export_pck() -> void:
 func _export_to_pck(mod_id: String, root: String, out_path: String) -> void:
 	var err := build_mod_pck(mod_id, root, out_path)
 	if err == OK:
-		_status.text = "exported %s -> %s" % [mod_id, out_path]
+		_set_status("exported %s -> %s" % [mod_id, out_path])
 		print("VML: exported ", mod_id, " -> ", out_path)
 	else:
-		_status.text = "export failed (%s) for %s" % [error_string(err), mod_id]
+		_set_status("export failed (%s) for %s" % [error_string(err), mod_id])
 
 
 ## Packs a mod's root directory into a .pck whose internal paths are namespaced

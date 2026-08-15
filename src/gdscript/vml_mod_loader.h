@@ -337,7 +337,9 @@ private:
 	void log_debug(const String &p_msg) const;
 	/// First configured mod root that passes a writable probe (skips read-only
 	/// res:// in exports / under a mounted pack; custom absolute-path roots win too).
-	String install_root() const;
+	/// Never returns a directory that scanning ignores: the fallback registers
+	/// user://vml/mods as a scanned root before returning it (M3).
+	String install_root();
 	/// True when `p_root` accepts a write (create + remove a temp probe directory).
 	bool root_writable(const String &p_root) const;
 	/// True when applying `p_custom` to `p_topological` keeps every dependency

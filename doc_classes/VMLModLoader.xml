@@ -535,11 +535,11 @@
 
 			 已配置的 mod 根目录（vortarismodloader/mod_paths；默认 ["res://mods", "res://mods-unpacked"]）。根目录下的 `.pck` 文件会在启动时以只读方式挂载。</description>
 		</method>
-		<method name="install_root" qualifiers="const">
+		<method name="install_root">
 			<return type="String" />
-			<description>First configured mod root that accepts a write (writability probed at call time), falling back to the first `user://` root and finally `user://vml/mods`. Used by the editor's Install PCK flow; `res://` roots are skipped when read-only (exports / while a pack is mounted).
+			<description>First configured mod root that accepts a write (writability probed at call time), falling back to the first configured `user://` root and finally `user://vml/mods` — which is registered as a scanned root first, so an install there is actually discovered on the next rescan. Used by the editor's Install PCK flow; `res://` roots are skipped when read-only (exports / while a pack is mounted).
 
-			 第一个可写入的已配置 mod 根目录（调用时探测可写性），回退到第一个 `user://` 根目录，最后是 `user://vml/mods`。用于编辑器的 Install PCK 流程；当 `res://` 只读（导出 / 挂载了包）时跳过。</description>
+			 第一个可写入的已配置 mod 根目录（调用时探测可写性），回退到第一个已配置的 `user://` 根目录，最后是 `user://vml/mods`（该目录会先注册为扫描根，保证装进去的 mod 下次 rescan 能被发现）。用于编辑器的 Install PCK 流程；当 `res://` 只读（导出 / 挂载了包）时跳过。</description>
 		</method>
 		<method name="add_mod_root">
 			<return type="bool" />

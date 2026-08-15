@@ -34,6 +34,9 @@ namespace godot {
 VMLModLoader *VMLModLoader::singleton = nullptr;
 
 VMLModLoader::VMLModLoader() {
+	// Editor tooling: suppress ERROR-level data-load spam while browsing broken
+	// mods (L2). Runtime builds keep the loud diagnostics.
+	vortarismodloader::LoaderBackend::set_quiet_errors(Engine::get_singleton()->is_editor_hint());
 	scan_base_layer();
 	scan_mods();
 	initialized_ = true;
@@ -309,11 +312,13 @@ void VMLModLoader::maybe_show_error_dialogs() {
 		last_error_dialog_summary_ = String(); // clean state — a later re-appearance pops again
 		return; // clean — nothing to print or pop up
 	}
+	// Editor tooling: keep the console clean. The mod list / detail panel already
+	// surface per-mod errors; never spam the summary nor pop dialogs (L2).
+	if (Engine::get_singleton()->is_editor_hint()) {
+		return;
+	}
 	print_line(String("VML: startup has mod errors:\n") + summary);
 	log_verbose("error summary printed to console");
-	if (Engine::get_singleton()->is_editor_hint()) {
-		return; // never pop a modal dialog from the editor
-	}
 	const bool show = ProjectSettings::get_singleton()->get_setting("vortarismodloader/show_error_dialogs", false);
 	if (!show) {
 		return;
@@ -2127,7 +2132,7 @@ PackedStringArray VMLModLoader::mod_roots() const {
 	return out;
 }
 
-String VMLModLoader::install_root() const {
+String VMLModLoader::install_root() {
 	const PackedStringArray roots = mod_roots();
 	// Prefer a writable root. res:// roots are read-only in exported builds (and
 	// while a pack is mounted), so a plain prefix check is wrong there — the probe
@@ -2138,13 +2143,18 @@ String VMLModLoader::install_root() const {
 			return roots[i];
 		}
 	}
-	// Nothing configured is writable: prefer a user:// root (user storage is always
-	// writable) so zip install still works in an export; fall back to the default.
+	// Nothing configured is writable: prefer an already-configured user:// root
+	// (user storage is always writable) so zip install still works in an export.
 	for (int i = 0; i < roots.size(); i++) {
 		if (roots[i].begins_with("user://")) {
 			return roots[i];
 		}
 	}
+	// Last resort: the legacy user://vml/mods target. Returning it alone would be
+	// a silent failure — the directory is NOT scanned, so a zip installed there is
+	// never discovered. Register it as a scanned root first (add_mod_root) so the
+	// install actually shows up on the next rescan (M3).
+	add_mod_root("user://vml/mods");
 	return "user://vml/mods";
 }
 

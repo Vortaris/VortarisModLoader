@@ -43,7 +43,12 @@ bool ManifestParser::load(const godot::String &p_json_path, ModManifest &p_out) 
 		p_out.errors.push_back(godot::String("cannot open manifest: ") + p_json_path);
 		return false;
 	}
-	godot::Variant parsed = godot::JSON::parse_string(f->get_as_text());
+	// Instance parse() so a malformed manifest doesn't trigger the engine's own
+	// "Parse JSON failed" ERROR print (the mod list surfaces the error via
+	// p_out.errors instead — keeps the editor console clean, L2).
+	godot::Ref<godot::JSON> parser;
+	parser.instantiate();
+	godot::Variant parsed = parser->parse(f->get_as_text()) == godot::OK ? parser->get_data() : godot::Variant();
 	if (parsed.get_type() != godot::Variant::DICTIONARY) {
 		p_out.errors.push_back(godot::String("invalid JSON in ") + p_json_path);
 		return false;

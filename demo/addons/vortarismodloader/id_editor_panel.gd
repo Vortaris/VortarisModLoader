@@ -218,10 +218,16 @@ func _refresh_registry() -> void:
 		var item := _tree.create_item(root)
 		item.set_text(0, id)
 		var path: String = e.get("path", "")
-		if path.is_empty() and e.has("value"):
+		# Placeholders (placeholder=true) always read as [ph]; the older branch first
+		# matched a data placeholder's empty path against "value", so it showed
+		# "[value] {...}" instead of "[ph]" (L1).
+		if e.get("placeholder", false):
+			if path.is_empty() and e.has("value"):
+				path = "[ph] value=%s" % str(e["value"])
+			else:
+				path = "[ph] " + path
+		elif path.is_empty() and e.has("value"):
 			path = "[value] " + str(e["value"])
-		elif e.get("placeholder", false):
-			path = "[ph] " + path
 		item.set_text(1, path)
 		item.set_text(2, e.get("type", ""))
 		item.set_text(3, e.get("description", ""))

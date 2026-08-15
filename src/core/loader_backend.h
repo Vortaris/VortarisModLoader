@@ -19,6 +19,14 @@ public:
 	/// Construct a raw asset directly (no import cache), by extension.
 	static godot::Ref<godot::Resource> load_raw_asset(const godot::String &p_path);
 	static godot::Ref<godot::ImageTexture> load_image(const godot::String &p_path);
+	/// Editor tooling: when true, data-loading failures are not printed as ERROR
+	/// (the editor browses broken mods constantly; the mod list already surfaces the
+	/// errors). Runtime builds keep the loud ERR_PRINT diagnostics.
+	static void set_quiet_errors(bool p_quiet) { quiet_errors_ = p_quiet; }
+	static bool is_quiet_errors() { return quiet_errors_; }
+
+private:
+	static bool quiet_errors_;
 };
 
 } // namespace vortarismodloader
