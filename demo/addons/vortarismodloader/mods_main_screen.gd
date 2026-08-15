@@ -165,13 +165,15 @@ func _ready() -> void:
 
 	# Details header panel.
 	var detail_panel := PanelContainer.new()
-	detail_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	# SIZE_FILL (not SHRINK_BEGIN): the panel grows/shrinks with the VSplitContainer
+	# divider when the user drags it, so the Details section can be resized freely.
+	# The ScrollContainer inside caps the *content* so it scrolls when the panel is
+	# small and shows more when the panel is enlarged.
+	detail_panel.size_flags_vertical = Control.SIZE_FILL
 	v_split.add_child(detail_panel)
-	# Cap the Details panel height (content scrolls) so it can never squeeze the
-	# Hooks/Content tabs out of view; the split divider remains draggable.
 	var detail_scroll := ScrollContainer.new()
 	detail_scroll.custom_minimum_size.y = 240
-	detail_scroll.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	detail_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	detail_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	detail_panel.add_child(detail_scroll)
 	var detail_vbox := VBoxContainer.new()
