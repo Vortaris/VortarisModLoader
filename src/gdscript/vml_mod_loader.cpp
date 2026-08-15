@@ -1175,10 +1175,16 @@ void VMLModLoader::run_startup_validation() {
 		const Array errs = result["errors"];
 		const Array warns = result["warnings"];
 		for (int i = 0; i < errs.size(); i++) {
-			rec.errors.push_back(String(errs[i]));
+			const String e = String(errs[i]);
+			if (std::find(rec.errors.begin(), rec.errors.end(), e) == rec.errors.end()) {
+				rec.errors.push_back(e);
+			}
 		}
 		for (int i = 0; i < warns.size(); i++) {
-			rec.warnings.push_back(String(warns[i]));
+			const String w = String(warns[i]);
+			if (std::find(rec.warnings.begin(), rec.warnings.end(), w) == rec.warnings.end()) {
+				rec.warnings.push_back(w);
+			}
 		}
 	}
 }
