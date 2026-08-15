@@ -236,6 +236,16 @@ public:
 	bool add_mod_root(const String &p_path);
 	bool remove_mod_root(const String &p_path);
 
+	// --- 0.3.0: error summary + debug log introspection -----------------
+	/// Human-readable startup error summary ("<mod>: <err>" lines, one per error).
+	/// This is what is printed to the console (and shown in the error dialog when
+	/// vortarismodloader/show_error_dialogs is on and not headless).
+	String get_error_summary() const;
+	/// Recent advanced-debug lines (vortarismodloader/debug_output gate),
+	/// each prefixed "[vortarismodloader][dbg] ".
+	PackedStringArray get_debug_log() const;
+	void clear_debug_log();
+
 	// signals
 	static void _static_bind_signals();
 
@@ -271,11 +281,23 @@ private:
 
 	void scan_base_layer();
 	void scan_mods();
+	/// Mount every *.pck found under the configured mod roots (read-only packs,
+	/// content must live under mods/<mod_id>/). Called at the top of scan_mods.
+	void mount_packs();
+	/// After a scan/finish_startup: always print the error summary to the console;
+	/// when vortarismodloader/show_error_dialogs is on and the display is not
+	/// headless, pop an AcceptDialog with the same summary.
+	void maybe_show_error_dialogs();
+	/// "<mod>: <err>" lines, one per startup error ("" when clean).
+	String error_summary_text() const;
 	/// Overlay priority from the load order (base=0, first mod=1, ...). -1 if absent.
 	int mod_priority(const String &p_mod_id) const;
 	void _process_preload_batch();
 	void _auto_finish_startup();
 	void log_verbose(const String &p_msg) const;
+	void log_debug(const String &p_msg) const;
+	/// First configured mod root that is writable (dev res://, user:// always).
+	String install_root() const;
 	bool is_reserved(const vortarismodloader::ResourceId &p_id) const;
 	String data_type_for(const String &p_path) const;
 	/// Load the value for a provider: json/csv parse to data, everything else is a Resource.
@@ -342,6 +364,7 @@ private:
 	VMLHotReloader *hot_reloader_ = nullptr;
 	bool profile_loaded_ = false;
 	bool initialized_ = false;
+	std::vector<String> mounted_packs_; // pck paths already load_resource_pack'd
 
 	static VMLModLoader *singleton;
 };

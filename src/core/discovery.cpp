@@ -5,7 +5,31 @@
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 
+#include "debug_log.h"
+
 namespace vortarismodloader {
+
+void DiscoveryScanner::scan_pck_files(const godot::String &p_root, std::vector<godot::String> &p_out) {
+	godot::Ref<godot::DirAccess> dir = godot::DirAccess::open(p_root);
+	if (dir.is_null()) {
+		return;
+	}
+	dir->list_dir_begin();
+	godot::String e;
+	while ((e = dir->get_next()) != godot::String()) {
+		if (e == "." || e == "..") {
+			continue;
+		}
+		const godot::String abs = p_root + godot::String("/") + e;
+		if (dir->current_is_dir()) {
+			scan_pck_files(abs, p_out);
+		} else if (abs.ends_with(".pck")) {
+			p_out.push_back(abs);
+			log_debug(godot::String("discovery: found pack ") + abs);
+		}
+	}
+	dir->list_dir_end();
+}
 
 void DiscoveryScanner::scan_mod_dirs(const godot::String &p_mods_root, std::vector<DiscoveredMod> &p_out) {
 	godot::Ref<godot::DirAccess> dir = godot::DirAccess::open(p_mods_root);

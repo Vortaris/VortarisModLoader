@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <functional>
 
+#include <godot_cpp/classes/accept_dialog.hpp>
 #include <godot_cpp/classes/dir_access.hpp>
+#include <godot_cpp/classes/display_server.hpp>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/gd_script.hpp>
@@ -20,6 +22,7 @@
 
 #include "vml_hot_reloader.h"
 
+#include "../core/debug_log.h"
 #include "../core/dependency_graph.h"
 #include "../core/discovery.h"
 #include "../core/loader_backend.h"
@@ -81,14 +84,18 @@ void VMLModLoader::scan_base_layer() {
 	load_order_.clear();
 	explicit_paths_.clear();
 	overlays_.add_source("base", true);
+	log_debug("scan: base layer (res://assets, res://data)");
 	vortarismodloader::Scanner::scan_implicit_dir("res://assets", "base", 0, registry_);
 	vortarismodloader::Scanner::scan_implicit_dir("res://data", "base", 0, registry_);
 }
 
 void VMLModLoader::scan_mods() {
 	startup_validation_done_ = false; // mods_ is rebuilt; validation must re-run
-	// 1) Discover from the configured mod roots (default res://mods-unpacked and
-	//    user://vml/mods), honoring the export policy and the user-mod scan switch.
+	// 0) Mount *.pck packs so their content appears in the virtual res:// VFS
+	//    before discovery walks the configured mod roots.
+	mount_packs();
+	// 1) Discover from the configured mod roots (default res://mods and
+	//    res://mods-unpacked), honoring the export policy and the user-mod switch.
 	std::vector<vortarismodloader::DiscoveredMod> discovered;
 	const String export_mode = ProjectSettings::get_singleton()->get_setting(
 			"vortarismodloader/export_mods", "embedded");
@@ -108,6 +115,7 @@ void VMLModLoader::scan_mods() {
 			continue; // scan_user_mods=false skips user roots
 		}
 		vortarismodloader::DiscoveryScanner::scan_mod_dirs(root, discovered);
+		log_debug(String("scan: discovered mods under ") + root);
 	}
 
 	// 2) Parse + validate manifests; a zip with a duplicate id is skipped (unpacked wins).
@@ -120,6 +128,8 @@ void VMLModLoader::scan_mods() {
 		for (const String &err : rec.manifest.errors) {
 			rec.errors.push_back(err);
 		}
+		log_debug(String("scan: manifest ") + d.manifest_path + String(" (id='") + rec.manifest.id +
+				String("')"));
 		if (find_mod(rec.manifest.id) != nullptr) {
 			continue; // duplicate id: keep the first (unpacked) record
 		}
@@ -129,6 +139,56 @@ void VMLModLoader::scan_mods() {
 			valid_manifests.push_back(rec.manifest);
 		}
 		mods_.push_back(std::move(rec));
+	}
+
+	// 2b) Manifestless pck mods: a mounted pack whose content lives under
+	//     mods/<mod_id>/ but ships no manifest still contributes its content with
+	//     the mod_id derived from the folder. (With-manifest packs are already
+	//     discovered normally above.)
+	if (!mounted_packs_.empty()) {
+		const String pck_mods_root = "res://mods";
+		Ref<DirAccess> dir = DirAccess::open(pck_mods_root);
+		if (dir.is_valid()) {
+			dir->list_dir_begin();
+			String e;
+			while ((e = dir->get_next()) != String()) {
+				if (e == "." || e == ".." || !dir->current_is_dir()) {
+					continue;
+				}
+				if (!vortarismodloader::ResourceId::is_valid_namespace(e)) {
+					continue;
+				}
+				if (find_mod(e) != nullptr) {
+					continue; // already known (with-manifest mod discovered above)
+				}
+				const String root = pck_mods_root + String("/") + e;
+				if (FileAccess::file_exists(root + String("/manifest.json"))) {
+					continue;
+				}
+				bool has_content = false;
+				for (const String &sub : { String("assets"), String("data") }) {
+					if (DirAccess::dir_exists_absolute(root + String("/") + sub)) {
+						has_content = true;
+						break;
+					}
+				}
+				if (!has_content) {
+					continue; // not a pck-derived content dir
+				}
+				ModRecord rec;
+				rec.root = root;
+				rec.from_zip = false;
+				rec.manifest.id = e;
+				rec.manifest.display_name = e;
+				rec.manifest.version = "0.0.0";
+				rec.manifest.asset_dirs.push_back("assets");
+				rec.manifest.data_dirs.push_back("data");
+				mods_.push_back(rec);
+				valid_manifests.push_back(rec.manifest);
+				log_debug(String("scan: manifestless pck mod '") + e + String("' derived from ") + root);
+			}
+			dir->list_dir_end();
+		}
 	}
 
 	// 3) User profile overrides the default enabled state.
@@ -178,6 +238,92 @@ void VMLModLoader::scan_mods() {
 	}
 }
 
+void VMLModLoader::mount_packs() {
+	// In the editor, mounting a pack makes res:// read-only (Godot limitation),
+	// which would break the mod wizard / hot-reload file edits. Packs are the
+	// distribution mechanism for running games; the editor works on folders.
+	if (Engine::get_singleton()->is_editor_hint()) {
+		return;
+	}
+	const PackedStringArray roots = mod_roots();
+	for (int i = 0; i < roots.size(); i++) {
+		const String root = roots[i];
+		std::vector<String> pcks;
+		vortarismodloader::DiscoveryScanner::scan_pck_files(root, pcks);
+		for (const String &pck : pcks) {
+			if (std::find(mounted_packs_.begin(), mounted_packs_.end(), pck) != mounted_packs_.end()) {
+				continue; // already mounted this session
+			}
+			const bool ok = ProjectSettings::get_singleton()->load_resource_pack(pck);
+			if (ok) {
+				mounted_packs_.push_back(pck);
+				print_line(String("VML: mounted pack ") + pck);
+				log_debug(String("pck: mounted ") + pck);
+			} else {
+				ERR_PRINT(String("VML: failed to mount pack ") + pck);
+			}
+		}
+	}
+}
+
+String VMLModLoader::error_summary_text() const {
+	// "<mod>: <err>" lines, one per error (deterministic: iterate mods_ in order).
+	String out;
+	for (const ModRecord &rec : mods_) {
+		for (const String &e : rec.errors) {
+			if (!out.is_empty()) {
+				out += "\n";
+			}
+			out += rec.manifest.id + String(": ") + e;
+		}
+	}
+	return out;
+}
+
+String VMLModLoader::get_error_summary() const {
+	return error_summary_text();
+}
+
+void VMLModLoader::maybe_show_error_dialogs() {
+	const String summary = error_summary_text();
+	if (summary.is_empty()) {
+		return; // clean — nothing to print or pop up
+	}
+	print_line(String("VML: startup has mod errors:\n") + summary);
+	log_verbose("error summary printed to console");
+	const bool show = ProjectSettings::get_singleton()->get_setting("vortarismodloader/show_error_dialogs", false);
+	if (!show) {
+		return;
+	}
+	if (DisplayServer::get_singleton()->get_name() == "headless") {
+		return; // never pop a modal dialog headless
+	}
+	SceneTree *tree = Object::cast_to<SceneTree>(Engine::get_singleton()->get_main_loop());
+	if (tree == nullptr || tree->get_root() == nullptr) {
+		return;
+	}
+	AcceptDialog *dlg = memnew(AcceptDialog);
+	dlg->set_title("VortarisModLoader - Mod Errors");
+	dlg->set_text(summary);
+	dlg->set_min_size(Vector2i(480, 260));
+	dlg->connect("confirmed", Callable(dlg, "queue_free"));
+	dlg->connect("canceled", Callable(dlg, "queue_free"));
+	tree->get_root()->add_child(dlg);
+	dlg->popup_centered(Vector2i(560, 320));
+}
+
+PackedStringArray VMLModLoader::get_debug_log() const {
+	PackedStringArray out;
+	for (const String &line : vortarismodloader::debug_log_snapshot()) {
+		out.push_back(line);
+	}
+	return out;
+}
+
+void VMLModLoader::clear_debug_log() {
+	vortarismodloader::debug_log_clear();
+}
+
 bool VMLModLoader::is_initialized() const {
 	return initialized_;
 }
@@ -216,6 +362,7 @@ Variant VMLModLoader::get_data(const String &p_id) const {
 	if (database_mode_ != DatabaseMode::OFF) {
 		Variant cached;
 		if (database_.get(rid, cached)) {
+			log_debug(String("db: cache hit '") + p_id + String("'"));
 			return cached;
 		}
 	}
@@ -228,6 +375,7 @@ Variant VMLModLoader::get_data(const String &p_id) const {
 	if (database_mode_ != DatabaseMode::OFF) {
 		database_.set(rid, val, e->physical_path, e->mod_id);
 	}
+	log_debug(String("db: loaded '") + p_id + String("' <- ") + e->physical_path);
 	return val;
 }
 
@@ -342,6 +490,7 @@ int VMLModLoader::count_ids(const String &p_prefix) const {
 
 void VMLModLoader::preload_database() {
 	database_.clear();
+	log_debug("db: preload start (mode=" + mode_to_string(database_mode_) + ")");
 	if (database_mode_ == DatabaseMode::OFF) {
 		return;
 	}
@@ -361,6 +510,7 @@ void VMLModLoader::preload_database() {
 			database_.set(id, val, e->physical_path, e->mod_id);
 		}
 	}
+	log_debug("db: preload done (" + String::num_int64((int64_t)database_.size()) + " entries)");
 	emit_signal("database_loaded");
 }
 
@@ -1275,7 +1425,11 @@ bool VMLModLoader::is_mod_enabled(const String &p_mod_id) const {
 
 bool VMLModLoader::is_mod_loaded(const String &p_mod_id) const {
 	const ModRecord *rec = find_mod(p_mod_id);
-	return rec != nullptr && rec->mod_main_instantiated;
+	// "Loaded" = the mod's content is active: it is enabled and its content has
+	// been scanned (or its mod_main instantiated). This makes enable/disable
+	// reflect immediately, including for pure-data mods that have no mod_main
+	// (their content is scanned, so they report loaded without waiting on rescan).
+	return rec != nullptr && rec->enabled && (rec->content_scanned || rec->mod_main_instantiated);
 }
 
 Dictionary VMLModLoader::get_mod_dependencies(const String &p_mod_id) const {
@@ -1332,13 +1486,28 @@ void VMLModLoader::scan_mod_content(ModRecord &p_rec) {
 	} else {
 		overlays_.add_source(p_rec.manifest.id, false);
 	}
+	const bool has_overrides = !p_rec.manifest.id_overrides.empty();
+	if (has_overrides) {
+		log_verbose(String("scanning ") + p_rec.manifest.id + String(" with ") +
+				String::num_int64((int64_t)p_rec.manifest.id_overrides.size()) + String(" id override(s)"));
+	}
 	for (const String &dir : p_rec.manifest.asset_dirs) {
-		vortarismodloader::Scanner::scan_implicit_dir(p_rec.root + String("/") + dir,
-				p_rec.manifest.id, pri, registry_);
+		if (has_overrides) {
+			vortarismodloader::Scanner::scan_dir_with_overrides(p_rec.root + String("/") + dir, dir,
+					p_rec.manifest.id, pri, p_rec.manifest.id_overrides, registry_);
+		} else {
+			vortarismodloader::Scanner::scan_implicit_dir(p_rec.root + String("/") + dir,
+					p_rec.manifest.id, pri, registry_);
+		}
 	}
 	for (const String &dir : p_rec.manifest.data_dirs) {
-		vortarismodloader::Scanner::scan_implicit_dir(p_rec.root + String("/") + dir,
-				p_rec.manifest.id, pri, registry_);
+		if (has_overrides) {
+			vortarismodloader::Scanner::scan_dir_with_overrides(p_rec.root + String("/") + dir, dir,
+					p_rec.manifest.id, pri, p_rec.manifest.id_overrides, registry_);
+		} else {
+			vortarismodloader::Scanner::scan_implicit_dir(p_rec.root + String("/") + dir,
+					p_rec.manifest.id, pri, registry_);
+		}
 	}
 	p_rec.content_scanned = true;
 
@@ -1501,8 +1670,13 @@ bool VMLModLoader::unload_mod(const String &p_mod_id) {
 }
 
 Error VMLModLoader::install_mod_from_zip(const String &p_zip_path) {
+	// 0.3.0: zip install is a dev convenience, optional next to .pck packs.
+	// The default target is the first writable configured mod root (res://mods in
+	// dev); exported res:// roots are read-only, so a failed install there just
+	// returns the error — distribution is meant to use .pck packs.
+	const String dest = install_root();
 	vortarismodloader::ModManifest m;
-	const Error err = vortarismodloader::ZipInstaller::install(p_zip_path, "user://vml/mods", m);
+	const Error err = vortarismodloader::ZipInstaller::install(p_zip_path, dest, m);
 	if (err != OK) {
 		return err;
 	}
@@ -1510,7 +1684,7 @@ Error VMLModLoader::install_mod_from_zip(const String &p_zip_path) {
 		if (existing->from_zip) {
 			// Reinstall/upgrade in place: keep the freshly extracted copy, refresh the record.
 			deactivate_mod(m.id);
-			existing->root = String("user://vml/mods/") + m.id;
+			existing->root = dest + String("/") + m.id;
 			existing->manifest = m;
 			existing->from_zip = true;
 			existing->enabled = true;
@@ -1520,11 +1694,14 @@ Error VMLModLoader::install_mod_from_zip(const String &p_zip_path) {
 			return activate_mod(m.id) ? OK : ERR_UNAVAILABLE;
 		}
 		// res:// (unpacked) already provides this id — unpacked wins; drop the new copy.
-		vortarismodloader::ZipInstaller::uninstall(String("user://vml/mods/") + m.id, "user://vml/trash");
+		const String dup = dest + String("/") + m.id;
+		if (DirAccess::dir_exists_absolute(dup)) {
+			vortarismodloader::ZipInstaller::remove_recursive(dup);
+		}
 		return ERR_ALREADY_EXISTS;
 	}
 	ModRecord rec;
-	rec.root = String("user://vml/mods/") + m.id;
+	rec.root = dest + String("/") + m.id;
 	rec.from_zip = true;
 	rec.manifest = m;
 	mods_.push_back(std::move(rec));
@@ -1544,7 +1721,12 @@ Error VMLModLoader::uninstall_mod(const String &p_mod_id) {
 	}
 	Error err = OK;
 	if (rec->from_zip) {
-		err = vortarismodloader::ZipInstaller::uninstall(rec->root, "user://vml/trash");
+		// res:// dev roots are writable — remove directly (no cross-volume rename).
+		if (rec->root.begins_with("res://")) {
+			vortarismodloader::ZipInstaller::remove_recursive(rec->root);
+		} else {
+			err = vortarismodloader::ZipInstaller::uninstall(rec->root, "user://vml/trash");
+		}
 	}
 	load_order_.erase(std::remove(load_order_.begin(), load_order_.end(), p_mod_id), load_order_.end());
 	mods_.erase(std::remove_if(mods_.begin(), mods_.end(),
@@ -1612,9 +1794,12 @@ bool VMLModLoader::set_export_policy(const String &p_mode, bool p_scan_user) {
 }
 
 PackedStringArray VMLModLoader::mod_roots() const {
+	// 0.3.0: default roots are the dev folders (res://mods for pack-mounted /
+	// zip-installed mods, res://mods-unpacked for source folders). user://vml/mods
+	// is no longer a default root — distribution uses .pck packs, dev uses folders.
 	PackedStringArray defaults;
+	defaults.push_back("res://mods");
 	defaults.push_back("res://mods-unpacked");
-	defaults.push_back("user://vml/mods");
 	const Variant configured =
 			ProjectSettings::get_singleton()->get_setting("vortarismodloader/mod_paths", defaults);
 	PackedStringArray out;
@@ -1629,6 +1814,24 @@ PackedStringArray VMLModLoader::mod_roots() const {
 		}
 	}
 	return out;
+}
+
+String VMLModLoader::install_root() const {
+	// The first configured root that is writable. In dev res:// roots are
+	// writable; user:// roots always are. Falls back to the first root / the
+	// default so zip install stays a working dev convenience (distribution uses
+	// .pck packs, which need no extraction).
+	const PackedStringArray roots = mod_roots();
+	for (int i = 0; i < roots.size(); i++) {
+		const String r = roots[i];
+		if (r.begins_with("user://") || r.begins_with("res://")) {
+			return r;
+		}
+	}
+	if (roots.size() > 0) {
+		return roots[0];
+	}
+	return "res://mods";
 }
 
 PackedStringArray VMLModLoader::get_mod_roots() const {
@@ -1663,6 +1866,10 @@ void VMLModLoader::log_verbose(const String &p_msg) const {
 	if (ProjectSettings::get_singleton()->get_setting("vortarismodloader/verbose", false)) {
 		print_line(String("VML[v] ") + p_msg);
 	}
+}
+
+void VMLModLoader::log_debug(const String &p_msg) const {
+	vortarismodloader::log_debug(p_msg);
 }
 
 String VMLModLoader::owning_mod(const String &p_path) const {
@@ -1825,7 +2032,10 @@ void VMLModLoader::rescan() {
 	if (hot_reloader_ != nullptr) {
 		hot_reloader_->rescan();
 	}
+	log_debug(String("scan: rescan done (") + String::num_int64((int64_t)mods_.size()) +
+			String(" mods, ") + String::num_int64((int64_t)load_order_.size()) + String(" loaded)"));
 	emit_signal("registry_rebuilt");
+	maybe_show_error_dialogs();
 }
 
 void VMLModLoader::load_profile() {
@@ -1933,6 +2143,8 @@ void VMLModLoader::finish_startup() {
 			instantiate_mod_main(*rec);
 		}
 	}
+	log_debug("scan: startup finished");
+	maybe_show_error_dialogs();
 }
 
 void VMLModLoader::finish_startup_auto() {
@@ -2201,6 +2413,9 @@ void VMLModLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_mod_roots"), &VMLModLoader::get_mod_roots);
 	ClassDB::bind_method(D_METHOD("add_mod_root", "path"), &VMLModLoader::add_mod_root);
 	ClassDB::bind_method(D_METHOD("remove_mod_root", "path"), &VMLModLoader::remove_mod_root);
+	ClassDB::bind_method(D_METHOD("get_error_summary"), &VMLModLoader::get_error_summary);
+	ClassDB::bind_method(D_METHOD("get_debug_log"), &VMLModLoader::get_debug_log);
+	ClassDB::bind_method(D_METHOD("clear_debug_log"), &VMLModLoader::clear_debug_log);
 
 	ClassDB::bind_method(D_METHOD("instantiate", "id"), &VMLModLoader::instantiate);
 	ClassDB::bind_method(D_METHOD("reload_resources", "paths"), &VMLModLoader::reload_resources);

@@ -16,6 +16,8 @@ struct DiscoveredMod {
 class DiscoveryScanner {
 public:
 	static void scan_mod_dirs(const godot::String &p_mods_root, std::vector<DiscoveredMod> &p_out);
+	/// Recursively collect every `*.pck` under a directory (for pack mounting).
+	static void scan_pck_files(const godot::String &p_root, std::vector<godot::String> &p_out);
 };
 
 } // namespace vortarismodloader
