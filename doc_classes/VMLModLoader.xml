@@ -460,6 +460,47 @@
 
 			 彻底移除一个已安装（user://）的 mod。返回 Error 码。</description>
 		</method>
+		<method name="reload_mod">
+			<return type="bool" />
+			<param index="0" name="mod_id" type="String" />
+			<description>Hot reload one mod in place: drop its hooks/content/database entries, re-scan its files, and re-instantiate its mod_main (no duplicate hooks). Emits [signal mod_reloaded]. Returns false for an unknown mod.
+
+			 原地热重载一个 mod：移除其钩子/内容/数据库条目、重扫其文件、重新实例化 mod_main（不产生重复钩子）。发射 [signal mod_reloaded]。未知 mod 返回 false。</description>
+		</method>
+		<method name="get_mod_package_plan" qualifiers="const">
+			<return type="Dictionary" />
+			<description>Export plan from project settings: { embedded: bool, external: bool, scan_user_mods: bool }.
+
+			 项目设置导出的打包计划：{ embedded: bool, external: bool, scan_user_mods: bool }。</description>
+		</method>
+		<method name="set_export_policy">
+			<return type="bool" />
+			<param index="0" name="mode" type="String" />
+			<param index="1" name="scan_user" type="bool" />
+			<description>Set vortarismodloader/export_mods ("embedded"/"external"/"none") and vortarismodloader/scan_user_mods, persisted to ProjectSettings. Returns false on an unknown mode.
+
+			 设置 vortarismodloader/export_mods（"embedded"/"external"/"none"）与 vortarismodloader/scan_user_mods，写入 ProjectSettings。未知模式返回 false。</description>
+		</method>
+		<method name="get_mod_roots" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>Configured mod root directories (vortarismodloader/mod_paths; default ["res://mods-unpacked", "user://vml/mods"]).
+
+			 已配置的 mod 根目录（vortarismodloader/mod_paths；默认 ["res://mods-unpacked", "user://vml/mods"]）。</description>
+		</method>
+		<method name="add_mod_root">
+			<return type="bool" />
+			<param index="0" name="path" type="String" />
+			<description>Append a mod root directory and persist it to ProjectSettings. Returns false for an empty path.
+
+			 追加一个 mod 根目录并写入 ProjectSettings。空路径返回 false。</description>
+		</method>
+		<method name="remove_mod_root">
+			<return type="bool" />
+			<param index="0" name="path" type="String" />
+			<description>Remove a mod root directory from ProjectSettings. Returns false when absent.
+
+			 从 ProjectSettings 移除一个 mod 根目录。不存在时返回 false。</description>
+		</method>
 		<method name="reload_resources">
 			<return type="void" />
 			<param index="0" name="paths" type="PackedStringArray" />
@@ -518,17 +559,17 @@
 		</method>
 		<method name="save_registry">
 			<return type="int" />
-			<param index="0" name="path" type="String" default="&quot;user://vml/registry.json&quot;" />
-			<description>Persist the registry to JSON. Returns an Error code.
+			<param index="0" name="path" type="String" default="&quot;&quot;" />
+			<description>Persist the registry to JSON. Empty path uses the project-level path (vortarismodloader/registry_path, default res://vml/registry.json); when res:// is read-only (exports) it falls back to user://vml/registry.json. Returns an Error code.
 
-			 把注册表持久化为 JSON。返回 Error 码。</description>
+			 把注册表持久化为 JSON。空路径使用项目级路径（vortarismodloader/registry_path，默认 res://vml/registry.json）；res:// 只读（导出）时回退 user://vml/registry.json。返回 Error 码。</description>
 		</method>
 		<method name="load_registry">
 			<return type="int" />
-			<param index="0" name="path" type="String" default="&quot;user://vml/registry.json&quot;" />
-			<description>Load registry entries from JSON. Returns an Error code.
+			<param index="0" name="path" type="String" default="&quot;&quot;" />
+			<description>Load registry entries from JSON. Empty path uses the project-level path (then falls back to user://vml/registry.json). Returns an Error code.
 
-			 从 JSON 加载注册表条目。返回 Error 码。</description>
+			 从 JSON 加载注册表条目。空路径使用项目级路径（随后回退 user://vml/registry.json）。返回 Error 码。</description>
 		</method>
 		<method name="reroute">
 			<return type="bool" />
@@ -617,6 +658,12 @@
 			<description>A mod was enabled.
 
 			 某个 mod 被启用。</description>
+		</signal>
+		<signal name="mod_reloaded">
+			<param index="0" name="mod_id" type="String" />
+			<description>A mod was hot-reloaded in place ([method reload_mod]).
+
+			 某个 mod 被原地热重载（[method reload_mod]）。</description>
 		</signal>
 		<signal name="mod_disabled">
 			<param index="0" name="mod_id" type="String" />

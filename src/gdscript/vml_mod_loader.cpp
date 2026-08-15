@@ -512,6 +512,9 @@ Dictionary VMLModLoader::get_registry_entry(const String &p_id) const {
 		out["path"] = it->second.path;
 		out["type"] = it->second.type;
 		out["description"] = it->second.description;
+		if (it->second.has_value) {
+			out["value"] = it->second.value;
+		}
 	}
 	return out;
 }
@@ -524,6 +527,9 @@ Dictionary VMLModLoader::get_registry() const {
 		entry["path"] = kv.second.path;
 		entry["type"] = kv.second.type;
 		entry["description"] = kv.second.description;
+		if (kv.second.has_value) {
+			entry["value"] = kv.second.value;
+		}
 		out[canonical] = entry;
 	}
 	return out;

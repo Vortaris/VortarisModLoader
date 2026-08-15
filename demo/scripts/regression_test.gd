@@ -10,6 +10,7 @@ var _fired_ok := false
 var _test_event_fired := false
 var _mod_loaded_ids: Array = []
 var _mod_unloaded := false
+var _mod_reloaded := false
 var _async_progress_seen := false
 var _database_loaded_async := false
 
@@ -35,6 +36,10 @@ func _on_mod_loaded(mod_id: String) -> void:
 
 func _on_mod_unloaded(_mod_id: String) -> void:
 	_mod_unloaded = true
+
+
+func _on_mod_reloaded(_mod_id: String) -> void:
+	_mod_reloaded = true
 
 
 func _on_ctx_hook(ctx: Dictionary, amount: int) -> Dictionary:
@@ -663,5 +668,87 @@ func _initialize() -> void:
 		failed = true
 	if not VMLTestUtil.expect((sr.get("errors") as Array).size() > 0, "T54 startup report errors"):
 		failed = true
+
+	# --- 0.2.2: reload_mod re-scans + re-instantiates without duplicating hooks ---
+	_mod_reloaded = false
+	VML.mod_reloaded.connect(_on_mod_reloaded)
+	if not VMLTestUtil.expect(VML.reload_mod("mymod"), "T55 reload_mod returns true"):
+		failed = true
+	if not VMLTestUtil.expect(_mod_reloaded, "T55 mod_reloaded signal fired"):
+		failed = true
+	if not VMLTestUtil.expect(VML.is_mod_loaded("mymod"), "T55 mod_main re-instantiated"):
+		failed = true
+	var hook_info55: Dictionary = VML.list_hooks("game:modify_damage")
+	if not VMLTestUtil.expect_eq(hook_info55.get("game:modify_damage", {}).get("count", -1), 1,
+			"T55 hook count not duplicated after reload"):
+		failed = true
+	VML.mod_reloaded.disconnect(_on_mod_reloaded)
+
+	# --- 0.2.2: persist set_data → save/load round-trip at the project-level res:// path ---
+	var persist_val := {"k": "persisted-value", "n": 42}
+	if not VMLTestUtil.expect(VML.set_data("test:persist", persist_val, true), "T56 persist set_data"):
+		failed = true
+	var got56: Dictionary = VML.get_data("test:persist")
+	if not VMLTestUtil.expect_eq(got56.get("k"), "persisted-value", "T56 persisted value readable"):
+		failed = true
+	if not VMLTestUtil.expect(FileAccess.file_exists("res://vml/registry.json"),
+			"T56 project-level registry file written"):
+		failed = true
+	if not VMLTestUtil.expect(VML.remove_registry_entry("test:persist"), "T56 remove persisted entry"):
+		failed = true
+	if not VMLTestUtil.expect(not VML.has("test:persist"), "T56 entry gone after remove"):
+		failed = true
+	if not VMLTestUtil.expect(VML.load_registry() == OK, "T56 load_registry from project path"):
+		failed = true
+	if not VMLTestUtil.expect(VML.has("test:persist"), "T56 entry restored after load"):
+		failed = true
+	var got56b: Dictionary = VML.get_data("test:persist")
+	if not VMLTestUtil.expect_eq(got56b.get("k"), "persisted-value", "T56 value restored from disk"):
+		failed = true
+	VML.remove_registry_entry("test:persist")
+	DirAccess.remove_absolute("res://vml/registry.json")
+	if not VMLTestUtil.expect(not VML.has("test:persist"), "T56 cleanup removed entry"):
+		failed = true
+
+	# --- 0.2.2: export policy read/write + zip install unaffected + custom mod root ---
+	if not VMLTestUtil.expect(VML.set_export_policy("external", false), "T57 set_export_policy"):
+		failed = true
+	var plan57: Dictionary = VML.get_mod_package_plan()
+	if not VMLTestUtil.expect(plan57.get("embedded") == false and plan57.get("external") == true
+			and plan57.get("scan_user_mods") == false, "T57 package plan reflects policy"):
+		failed = true
+	# Zip install works regardless of the scan switch (direct insertion).
+	if not VMLTestUtil.expect(VML.install_mod_from_zip("res://mods/archer_pack.zip") == OK,
+			"T57 zip install unaffected by scan switch"):
+		failed = true
+	if not VMLTestUtil.expect(VML.has("archerpack:units.ranger"), "T57 zip mod content present"):
+		failed = true
+	if not VMLTestUtil.expect(VML.uninstall_mod("archerpack") == OK, "T57 uninstall zip mod"):
+		failed = true
+	if not VMLTestUtil.expect(VML.set_export_policy("embedded", true), "T57 restore export policy"):
+		failed = true
+	# Custom mod root discovered after rescan.
+	var extra_root := "user://vml/extra_mods"
+	DirAccess.make_dir_recursive_absolute(extra_root + "/root_test/data/root_test")
+	FileAccess.open(extra_root + "/root_test/manifest.json", FileAccess.WRITE).store_string(
+			'{"name":"Root Test","namespace":"root_test","version_number":"1.0.0","extra":{"godot":{}}}')
+	FileAccess.open(extra_root + "/root_test/data/root_test/sample.json", FileAccess.WRITE).store_string(
+			'{"id":"root_test:sample","name":"Sample"}')
+	if not VMLTestUtil.expect(VML.add_mod_root(extra_root), "T57 add_mod_root"):
+		failed = true
+	if not VMLTestUtil.expect(VML.get_mod_roots().has(extra_root), "T57 get_mod_roots includes new root"):
+		failed = true
+	VML.rescan()
+	if not VMLTestUtil.expect(VML.get_mod_ids().has("root_test"), "T57 rescan finds custom root mod"):
+		failed = true
+	if not VMLTestUtil.expect(VML.has("root_test:sample"), "T57 custom root content indexed"):
+		failed = true
+	if not VMLTestUtil.expect(VML.remove_mod_root(extra_root), "T57 remove_mod_root"):
+		failed = true
+	VML.rescan()
+	if not VMLTestUtil.expect(not VML.get_mod_ids().has("root_test"),
+			"T57 custom root mod gone after rescan"):
+		failed = true
+	DirAccess.remove_absolute(extra_root)
 
 	quit(1 if failed else 0)
