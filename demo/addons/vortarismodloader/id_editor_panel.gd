@@ -21,6 +21,17 @@ var _dlg_type: OptionButton
 var _dlg_desc: LineEdit
 var _selected_id := ""
 
+# Placeholder editor (B6: ID placeholder system).
+var _ph_tree: Tree
+var _ph_dlg: ConfirmationDialog
+var _ph_error: Label
+var _ph_id: LineEdit
+var _ph_type: OptionButton
+var _ph_value: LineEdit
+var _ph_value_text: TextEdit
+var _ph_value_row: HBoxContainer
+var _ph_desc: LineEdit
+
 
 func _ready() -> void:
 	name = "VML IDs"
@@ -36,6 +47,7 @@ func _ready() -> void:
 	_add_btn(hbox, "Delete", _on_delete)
 	_add_btn(hbox, "Save", _on_save)
 	_add_btn(hbox, "Reload", _on_reload)
+	_add_btn(hbox, "New Placeholder", _on_new_placeholder)
 
 	_tabs = TabContainer.new()
 	_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -78,11 +90,19 @@ func _ready() -> void:
 	_browse_tree.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	browse_vbox.add_child(_browse_tree)
 
+	# Placeholders tab: developer-declared ids with default values.
+	_ph_tree = Tree.new()
+	_setup_columns(_ph_tree, ["ID", "Type", "Default", "Desc"], [140, 70, 200, 120])
+	_ph_tree.name = "Placeholders"
+	_ph_tree.item_selected.connect(_on_placeholder_selected)
+	_tabs.add_child(_ph_tree)
+
 	_status = Label.new()
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vbox.add_child(_status)
 
 	_build_dialog()
+	_build_placeholder_dialog()
 
 	refresh()
 
@@ -92,8 +112,11 @@ func _setup_columns(tree: Tree, titles: Array, widths: Array) -> void:
 	tree.set_column_titles_visible(true)
 	for i in titles.size():
 		tree.set_column_title(i, titles[i])
+		# Only the last column expands; the rest are user-draggable with a sensible
+		# minimum width and never clip their content.
 		tree.set_column_expand(i, i == titles.size() - 1)
 		tree.set_column_custom_minimum_width(i, widths[i])
+		tree.set_column_clip_content(i, false)
 
 
 func _add_btn(parent: Control, text: String, callable: Callable) -> void:
@@ -153,10 +176,12 @@ func refresh() -> void:
 		return
 	var reg_count := VML.get_registry().size()
 	var loaded_count := _count_loaded_ids()
-	_status.text = "%d registry entries · %d ids loaded" % [reg_count, loaded_count]
+	var ph_count := VML.get_placeholder_ids().size()
+	_status.text = "%d registry entries · %d ids loaded · %d placeholders" % [reg_count, loaded_count, ph_count]
 	_refresh_registry()
 	_refresh_loaded()
 	_refresh_browse()
+	_refresh_placeholders()
 
 
 func _count_loaded_ids() -> int:
@@ -323,7 +348,9 @@ func _on_delete() -> void:
 func _on_save() -> void:
 	if not Engine.has_singleton("VML"):
 		return
-	var err := VML.save_registry("user://vml/registry.json")
+	# Project-level path (res://vml/registry.json by default) so entries are
+	# git-committable; falls back to user:// when res:// is read-only.
+	var err := VML.save_registry()
 	_status.text = "saved: %s" % error_string(err)
 	print("VML: save_registry -> ", err)
 
@@ -331,7 +358,7 @@ func _on_save() -> void:
 func _on_reload() -> void:
 	if not Engine.has_singleton("VML"):
 		return
-	VML.load_registry("user://vml/registry.json")
+	VML.load_registry()
 	refresh()
 
 
@@ -387,3 +414,142 @@ func _id_is_valid(id: String) -> bool:
 		return false
 	re.compile("^[a-zA-Z0-9_\\-\\.]+$")
 	return re.search(parts[1]) != null
+
+
+# --- ID placeholders (B6) ---------------------------------------------------
+
+func _build_placeholder_dialog() -> void:
+	_ph_dlg = ConfirmationDialog.new()
+	_ph_dlg.ok_button_text = "Create"
+	_ph_dlg.cancel_button_text = "Cancel"
+	var form := GridContainer.new()
+	form.columns = 2
+	_ph_dlg.add_child(form)
+	form.add_child(_lbl("ID"))
+	_ph_id = LineEdit.new()
+	_ph_id.placeholder_text = "mygame:mainmenu.bg"
+	form.add_child(_ph_id)
+	form.add_child(_lbl("Type"))
+	_ph_type = OptionButton.new()
+	for t in TYPES:
+		_ph_type.add_item(t)
+	_ph_type.select(0)
+	_ph_type.item_selected.connect(func(_i: int): _on_ph_type_changed())
+	form.add_child(_ph_type)
+	form.add_child(_lbl("Default"))
+	_ph_value_row = HBoxContainer.new()
+	_ph_value = LineEdit.new()
+	_ph_value.placeholder_text = "res://assets/... or user://..."
+	_ph_value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_ph_value_row.add_child(_ph_value)
+	var browse := Button.new()
+	browse.text = "Browse"
+	browse.pressed.connect(_on_ph_browse)
+	_ph_value_row.add_child(browse)
+	form.add_child(_ph_value_row)
+	_ph_value_text = TextEdit.new()
+	_ph_value_text.custom_minimum_size = Vector2(0, 64)
+	_ph_value_text.placeholder_text = "constant value (JSON object/array, number, string)"
+	form.add_child(_ph_value_text)
+	form.add_child(_lbl("Desc"))
+	_ph_desc = LineEdit.new()
+	_ph_desc.placeholder_text = "what does this id mean? (shown in the editor)"
+	form.add_child(_ph_desc)
+	_ph_error = Label.new()
+	_ph_error.add_theme_color_override("font_color", Color(1, 0.3, 0.3))
+	_ph_error.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_ph_error.custom_minimum_size = Vector2(400, 0)
+	_ph_dlg.add_child(_ph_error)
+	add_child(_ph_dlg)
+	_ph_dlg.confirmed.connect(_on_ph_ok)
+
+
+func _on_new_placeholder() -> void:
+	_ph_dlg.title = "New Placeholder"
+	_ph_id.text = ""
+	_ph_desc.text = ""
+	_ph_value.text = ""
+	_ph_value_text.text = ""
+	_ph_error.text = ""
+	_ph_type.select(0)
+	_on_ph_type_changed()
+	_ph_dlg.popup_centered(Vector2(460, 320))
+
+
+func _on_placeholder_selected() -> void:
+	var item := _ph_tree.get_selected()
+	_selected_id = item.get_meta("id", "") if item else ""
+
+
+func _on_ph_type_changed() -> void:
+	var t := _ph_type.get_item_text(_ph_type.selected)
+	var is_data := t == "data" or t == "value"
+	_ph_value_row.visible = not is_data
+	_ph_value_text.visible = is_data
+
+
+func _on_ph_browse() -> void:
+	var fd := FileDialog.new()
+	fd.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	fd.access = FileDialog.ACCESS_RESOURCES
+	fd.exclusive = false
+	add_child(fd)
+	fd.file_selected.connect(func(p: String):
+		_ph_value.text = p
+		fd.queue_free())
+	fd.canceled.connect(func(): fd.queue_free())
+	fd.popup_centered_ratio(0.5)
+
+
+func _on_ph_ok() -> void:
+	var id := _ph_id.text.strip_edges()
+	if id.is_empty():
+		_ph_error.text = "ID is required"
+		_ph_dlg.popup_centered(Vector2(460, 320))
+		return
+	if not _id_is_valid(id):
+		_ph_error.text = "invalid id (namespace:path, dotted, lower-case a-z0-9_-.)"
+		_ph_dlg.popup_centered(Vector2(460, 320))
+		return
+	var t := _ph_type.get_item_text(_ph_type.selected)
+	var is_data := t == "data" or t == "value"
+	var default_val: Variant
+	if is_data:
+		var raw := _ph_value_text.text
+		var parsed = JSON.parse_string(raw)
+		default_val = parsed if parsed != null else raw
+	else:
+		var path := _ph_value.text.strip_edges()
+		if path.is_empty():
+			_ph_error.text = "default resource path is required"
+			_ph_dlg.popup_centered(Vector2(460, 320))
+			return
+		default_val = path
+	if VML.set_placeholder(id, t, default_val, _ph_desc.text.strip_edges()):
+		var err := VML.save_registry()
+		print("VML: placeholder set: ", id, " -> ", str(default_val), " (save ", err, ")")
+		_selected_id = id
+		refresh()
+	else:
+		_ph_error.text = "failed to set placeholder"
+		_ph_dlg.popup_centered(Vector2(460, 320))
+
+
+func _refresh_placeholders() -> void:
+	if _ph_tree == null or not Engine.has_singleton("VML"):
+		return
+	_ph_tree.clear()
+	var root := _ph_tree.create_item()
+	for id in VML.get_placeholder_ids():
+		var entry: Dictionary = VML.get_registry_entry(id)
+		var item := _ph_tree.create_item(root)
+		item.set_text(0, id)
+		item.set_text(1, entry.get("type", ""))
+		var default_val: Variant
+		if entry.has("value"):
+			default_val = entry["value"]
+		else:
+			default_val = entry.get("path", "")
+		item.set_text(2, str(default_val))
+		item.set_text(3, entry.get("description", ""))
+		item.set_meta("id", id)
