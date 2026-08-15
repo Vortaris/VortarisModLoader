@@ -170,7 +170,7 @@ func _ready() -> void:
 	# Cap the Details panel height (content scrolls) so it can never squeeze the
 	# Hooks/Content tabs out of view; the split divider remains draggable.
 	var detail_scroll := ScrollContainer.new()
-	detail_scroll.custom_minimum_size.y = 80
+	detail_scroll.custom_minimum_size.y = 240
 	detail_scroll.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	detail_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	detail_panel.add_child(detail_scroll)
@@ -217,7 +217,7 @@ func _ready() -> void:
 
 	var tabs := TabContainer.new()
 	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	tabs.custom_minimum_size.y = 150
+	tabs.custom_minimum_size.y = 120
 	v_split.add_child(tabs)
 
 	# Hooks tab. (The old Config *tab* was removed in 0.3.1 — configuration is
