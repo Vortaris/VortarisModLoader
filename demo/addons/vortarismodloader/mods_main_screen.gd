@@ -6,15 +6,17 @@ extends Control
 ##
 ## Left:  mod list with drag-to-reorder priority (persisted via VML.set_mod_order).
 ## Right: details (manifest / deps / errors / config) + hooks + content browser.
-## Toolbar: Rescan / Install Zip / Create Mod / Reload DB.
+## Toolbar: Rescan / Install PCK / Install Zip (legacy) / Create Mod / Reload DB.
 
 const ModWizard = preload("mod_wizard.gd")
 
-## Tree subclass that lets the user drag a mod to reorder its priority.
-class _ModListTree extends Tree:
+## Tree subclass that lets the user drag a mod to reorder its priority. Extends
+## VMLResizableTree so column headers are also drag-resizable (G4).
+class _ModListTree extends VMLResizableTree:
 	signal mods_reordered(order: PackedStringArray)
 
 	func _ready() -> void:
+		super._ready() # connects the column-resize gui_input handler
 		drop_mode_flags = Tree.DROP_MODE_INBETWEEN
 
 	func _get_drag_data(at_position: Vector2) -> Variant:
@@ -97,7 +99,8 @@ func _ready() -> void:
 	var toolbar := HBoxContainer.new()
 	vbox.add_child(toolbar)
 	_add_btn(toolbar, "Rescan", _on_rescan)
-	_add_btn(toolbar, "Install Zip", _on_install_zip)
+	_add_btn(toolbar, "Install PCK", _on_install_pck)
+	_add_btn(toolbar, "Install Zip", _on_install_zip) # legacy, optional dev flow
 	_add_btn(toolbar, "Create Mod", _on_create_mod)
 	_add_btn(toolbar, "Reload DB", _on_reload)
 	var spacer := Control.new()
@@ -149,7 +152,7 @@ func _ready() -> void:
 	var actions := HBoxContainer.new()
 	right.add_child(actions)
 	_enable_btn = _add_btn(actions, "Enable", _on_toggle)
-	_export_btn = _add_btn(actions, "Export ZIP", _on_export_zip)
+	_export_btn = _add_btn(actions, "Export PCK", _on_export_pck)
 	_uninstall_btn = _add_btn(actions, "Uninstall", _on_uninstall)
 	_add_btn(actions, "Config", _on_config)
 
@@ -175,7 +178,7 @@ func _ready() -> void:
 	_config_tab.add_child(_config_error)
 
 	# Hooks tab.
-	_hook_tree = Tree.new()
+	_hook_tree = VMLResizableTree.new()
 	_setup_columns(_hook_tree, ["Hook", "Mod", "Priority", "Description"],
 			[150, 90, 60, 220])
 	_hook_tree.name = "Hooks"
@@ -192,7 +195,7 @@ func _ready() -> void:
 	_content_filter.placeholder_text = "game"
 	_content_filter.text_changed.connect(func(_t: String): _refresh_content())
 	filter_row.add_child(_content_filter)
-	_content_tree = Tree.new()
+	_content_tree = VMLResizableTree.new()
 	_setup_columns(_content_tree, ["ID", "Path", "Provider", "Type"], [140, 220, 90, 60])
 	_content_tree.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content_vbox.add_child(_content_tree)
@@ -450,13 +453,58 @@ func _on_zip_selected(path: String) -> void:
 	if not Engine.has_singleton("VML"):
 		return
 	var err := VML.install_mod_from_zip(path)
-	_status.text = "install: %s" % error_string(err)
+	_status.text = "install (legacy zip): %s" % error_string(err)
 	print("VML: install_mod_from_zip(%s) -> %s" % [path, err])
 	refresh()
 
 
+func _on_install_pck() -> void:
+	if not Engine.has_singleton("VML"):
+		return
+	var fd := FileDialog.new()
+	fd.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	fd.access = FileDialog.ACCESS_FILESYSTEM
+	fd.exclusive = false # avoid "exclusive child window" clash with other dialogs
+	fd.add_filter("*.pck", "Vortaris Mod Pack (pck)")
+	add_child(fd)
+	fd.file_selected.connect(func(p: String):
+		_on_pck_selected(p)
+		fd.queue_free())
+	fd.canceled.connect(func(): fd.queue_free())
+	fd.popup_centered_ratio(0.5)
+
+
+func _on_pck_selected(path: String) -> void:
+	if not Engine.has_singleton("VML"):
+		return
+	var root := VML.install_root()
+	var err := _copy_file_into(path, root)
+	if err != OK:
+		_status.text = "install: %s" % error_string(err)
+		return
+	VML.rescan()
+	# Packs mount via load_resource_pack at runtime; in the editor they are staged
+	# into the writable root and picked up on the next game run.
+	_status.text = "installed %s -> %s (mounted on next run)" % [path.get_file(), root]
+	print("VML: installed pack %s -> %s" % [path, root])
+	refresh()
+
+
+func _copy_file_into(src: String, root: String) -> Error:
+	if DirAccess.make_dir_recursive_absolute(root) != OK:
+		return ERR_CANT_CREATE
+	var dest := root + "/" + src.get_file()
+	if src == dest:
+		return OK
+	if FileAccess.file_exists(dest):
+		DirAccess.remove_absolute(dest)
+	if DirAccess.copy_absolute(src, dest) != OK:
+		return ERR_CANT_CREATE
+	return OK
+
+
 func _on_create_mod() -> void:
-	_wizard.popup_centered(Vector2(400, 200))
+	_wizard.show_create()
 
 
 func _on_mod_created(mod_id: String) -> void:
@@ -709,9 +757,9 @@ func _on_config_save() -> void:
 		_config_dlg.popup_centered(Vector2(480, 420))
 
 
-# --- Export ZIP (B4) --------------------------------------------------------
+# --- Export PCK (G6) --------------------------------------------------------
 
-func _on_export_zip() -> void:
+func _on_export_pck() -> void:
 	var id := _selected_mod
 	if id.is_empty() or not Engine.has_singleton("VML"):
 		_status.text = "select a mod first"
@@ -724,50 +772,60 @@ func _on_export_zip() -> void:
 	fd.file_mode = FileDialog.FILE_MODE_SAVE_FILE
 	fd.access = FileDialog.ACCESS_FILESYSTEM
 	fd.exclusive = false
-	fd.add_filter("*.zip", "Vortaris Mod (zip)")
-	fd.current_file = id + ".zip"
+	fd.add_filter("*.pck", "Vortaris Mod Pack (pck)")
+	fd.current_file = id + ".pck"
 	add_child(fd)
 	fd.file_selected.connect(func(p: String):
-		_export_to_zip(id, root, p)
+		_export_to_pck(id, root, p)
 		fd.queue_free())
 	fd.canceled.connect(func(): fd.queue_free())
 	fd.popup_centered_ratio(0.5)
 
 
-func _export_to_zip(mod_id: String, root: String, out_path: String) -> void:
-	var zip := ZIPPacker.new()
-	if zip.open(out_path, ZIPPacker.APPEND_CREATE) != OK:
-		_status.text = "cannot create zip: " + out_path
-		return
-	var ok := _add_dir_to_zip(zip, root, "")
-	zip.close()
-	if ok:
+func _export_to_pck(mod_id: String, root: String, out_path: String) -> void:
+	var err := build_mod_pck(mod_id, root, out_path)
+	if err == OK:
 		_status.text = "exported %s -> %s" % [mod_id, out_path]
 		print("VML: exported ", mod_id, " -> ", out_path)
 	else:
-		_status.text = "export failed for " + mod_id
+		_status.text = "export failed (%s) for %s" % [error_string(err), mod_id]
 
 
-func _add_dir_to_zip(zip: ZIPPacker, dir: String, prefix: String) -> bool:
+## Packs a mod's root directory into a .pck whose internal paths are namespaced
+## under res://mods/<mod_id>/. Dropped into a configured mod root (res://mods in
+## dev, or a user path in exports) the pack mounts read-only at startup and its
+## content is isolated under the id layer — it never collides with the game's own
+## res:// files. Excludes .import/.uid and hidden files.
+static func build_mod_pck(mod_id: String, root: String, out_path: String) -> Error:
+	var packer := PCKPacker.new()
+	var err := packer.pck_start(out_path)
+	if err != OK:
+		return err
+	err = _add_dir_to_pck(packer, root, "res://mods/" + mod_id)
+	if err != OK:
+		packer.flush() # release the file handle so callers can clean up
+		return err
+	return packer.flush()
+
+
+static func _add_dir_to_pck(packer: PCKPacker, dir: String, pck_prefix: String) -> Error:
 	var d := DirAccess.open(dir)
 	if d == null:
-		return false
-	d.list_dir_begin()
+		return ERR_CANT_OPEN
+	d.list_dir_begin() # 4.7: skips . and .. automatically; hidden files are NOT skipped
 	var e := d.get_next()
-	var ok := true
+	var err := OK
 	while e != "":
-		if e != "." and e != ".." and not e.ends_with(".import") and not e.ends_with(".uid"):
-			var rel := (prefix + "/" + e) if not prefix.is_empty() else e
+		# Exclude Godot's import metadata / uid files and hidden files (.godot/, .git/).
+		if not e.begins_with(".") and not e.ends_with(".import") and not e.ends_with(".uid"):
+			var rel := pck_prefix + "/" + e
 			var full := dir + "/" + e
 			if d.current_is_dir():
-				ok = _add_dir_to_zip(zip, full, rel) and ok
+				err = _add_dir_to_pck(packer, full, rel)
 			else:
-				# Skip Godot's import metadata / uid files.
-				var data := FileAccess.get_file_as_bytes(full)
-				if zip.start_file(rel) == OK and zip.write_file(data) == OK:
-					zip.close_file()
-				else:
-					ok = false
+				err = packer.add_file(rel, full)
+			if err != OK:
+				break
 		e = d.get_next()
 	d.list_dir_end()
-	return ok
+	return err

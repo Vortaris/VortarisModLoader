@@ -2750,6 +2750,7 @@ void VMLModLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_mod_package_plan"), &VMLModLoader::get_mod_package_plan);
 	ClassDB::bind_method(D_METHOD("set_export_policy", "mode", "scan_user"), &VMLModLoader::set_export_policy);
 	ClassDB::bind_method(D_METHOD("get_mod_roots"), &VMLModLoader::get_mod_roots);
+	ClassDB::bind_method(D_METHOD("install_root"), &VMLModLoader::install_root);
 	ClassDB::bind_method(D_METHOD("add_mod_root", "path"), &VMLModLoader::add_mod_root);
 	ClassDB::bind_method(D_METHOD("remove_mod_root", "path"), &VMLModLoader::remove_mod_root);
 	ClassDB::bind_method(D_METHOD("get_error_summary"), &VMLModLoader::get_error_summary);

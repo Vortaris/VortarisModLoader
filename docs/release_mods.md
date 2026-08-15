@@ -51,6 +51,11 @@ from the `mods/<mod_id>/` folder name.
 
 - **Packs**: drop the `.pck` under a configured mod root (e.g. the exported game's
   `mods/` folder). It is mounted at startup — no runtime call needed.
+- **Editor flow**: the **VML Mods** main screen has **Export PCK** (builds a
+  namespaced `res://mods/<mod_id>/` pack from the selected mod, exclusions applied
+  automatically) and **Install PCK** (copies a `.pck` into the writable root and
+  rescans; packs mount on the next game run). **Install Zip** stays as a legacy
+  dev option.
 - **Zip (dev)**: `VML.install_mod_from_zip("path.zip")` extracts into
   `res://mods/<mod_id>/` (dev). In an exported build `res://` is read-only, so zip
   install returns an error — use packs there.

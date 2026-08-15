@@ -13,9 +13,11 @@ func _ready() -> void:
 	title = "Create Vortaris Mod"
 	ok_button_text = "Create"
 	cancel_button_text = "Cancel"
-	# Fixed, compact dialog — never auto-fills the screen on first open.
-	set_min_size(Vector2i(400, 200))
-	reset_size()
+	# Fixed, compact dialog — never auto-fills the screen on first open. The size
+	# must be set explicitly (not just min_size): Godot's dialog size/state restore
+	# otherwise gives the FIRST open a large default and the second open the small one.
+	size = Vector2i(400, 200)
+	min_size = Vector2i(400, 200)
 
 	var vbox := VBoxContainer.new()
 	vbox.add_child(_label("Mod id (namespace, ^[a-z0-9_]{1,32}$):"))
@@ -31,6 +33,16 @@ func _ready() -> void:
 	add_child(vbox)
 
 	confirmed.connect(_on_confirmed)
+
+
+## Opens the dialog at a fixed compact size. The extra process_frame await lets
+## the layout settle so the first open (which otherwise restores a large default
+## size) is correct from the start.
+func show_create() -> void:
+	size = Vector2i(400, 200)
+	min_size = Vector2i(400, 200)
+	await get_tree().process_frame
+	popup_centered(Vector2i(400, 200))
 
 
 func _label(text: String) -> Label:

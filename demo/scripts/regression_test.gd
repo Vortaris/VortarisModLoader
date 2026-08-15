@@ -88,6 +88,15 @@ func _initialize() -> void:
 	var stale_wiz := ProjectSettings.globalize_path("res://mods-unpacked/test_wiz")
 	if DirAccess.dir_exists_absolute(stale_wiz):
 		_rmtree(stale_wiz)
+	# Stale G6/G7 pack staging from a crashed run (user:// persists).
+	_rmtree("user://vml/g6_src")
+	_rmtree("user://vml/g6_pck_root")
+	_rmtree("user://vml/g7_src")
+	_rmtree("user://vml/g7_pck_root")
+	if FileAccess.file_exists("user://vml/g6_mod.pck"):
+		DirAccess.remove_absolute("user://vml/g6_mod.pck")
+	if FileAccess.file_exists("user://vml/g7_mod.pck"):
+		DirAccess.remove_absolute("user://vml/g7_mod.pck")
 	# Reset persisted enable-state from previous runs so the suite is repeatable.
 	DirAccess.remove_absolute("user://vml/profile.json")
 	# A user-defined mod order (drag-to-reorder, B5) would skew priority tests.
@@ -1304,6 +1313,147 @@ func _initialize() -> void:
 	if not VMLTestUtil.expect(VML.get_error_summary().length() > 0, "F8 error summary still available"):
 		failed = true
 	ProjectSettings.set_setting("vortarismodloader/show_error_dialogs", false)
+
+	# --- 0.3.0 G4: Tree column headers are drag-resizable (custom resize) ---
+	var ResizableTree = load("res://addons/vortarismodloader/resizable_tree.gd")
+	var rtree = ResizableTree.new()
+	rtree.columns = 3
+	rtree.set_column_titles_visible(true)
+	for i in 3:
+		rtree.set_column_expand(i, i == 2)
+		rtree.set_column_custom_minimum_width(i, [100, 120, 140][i])
+		rtree.set_column_clip_content(i, false)
+	rtree.custom_minimum_size = Vector2(600, 300)
+	var rroot := Control.new()
+	rroot.add_child(rtree)
+	get_root().add_child(rroot)
+	await process_frame
+	await process_frame
+	var g4_before: int = rtree.get_column_width(0)
+	var g4_y: float = rtree._header_height() * 0.5
+	var g4_press := InputEventMouseButton.new()
+	g4_press.button_index = MOUSE_BUTTON_LEFT
+	g4_press.pressed = true
+	g4_press.position = Vector2(g4_before, g4_y)
+	get_root().push_input(g4_press)
+	var g4_motion := InputEventMouseMotion.new()
+	g4_motion.position = Vector2(g4_before + 50, g4_y)
+	get_root().push_input(g4_motion)
+	var g4_release := InputEventMouseButton.new()
+	g4_release.button_index = MOUSE_BUTTON_LEFT
+	g4_release.pressed = false
+	g4_release.position = Vector2(g4_before + 50, g4_y)
+	get_root().push_input(g4_release)
+	await process_frame
+	var g4_after: int = rtree.get_column_width(0)
+	if not VMLTestUtil.expect(g4_after >= g4_before + 45,
+			"G4 Tree column drag widens column 0 (%d -> %d)" % [g4_before, g4_after]):
+		failed = true
+	if not VMLTestUtil.expect(rtree._resizing_col == -1, "G4 resize state cleared after release"):
+		failed = true
+	rroot.free()
+
+	# --- 0.3.0 G5: unified New dialog creates routes + placeholders ---
+	var g5_panel = load("res://addons/vortarismodloader/id_editor_panel.gd").new()
+	get_root().add_child(g5_panel)
+	await process_frame
+	# Resource route: type image + a path default.
+	g5_panel._reset_type_options()
+	g5_panel._on_type_changed()
+	g5_panel._dlg_id.text = "g5:route"
+	g5_panel._dlg_type.select(3) # image
+	g5_panel._dlg_value.text = "res://assets/game/icons/peasant.png"
+	g5_panel._on_dialog_ok()
+	if not VMLTestUtil.expect(VML.has("g5:route"), "G5 unified New creates a resource route"):
+		failed = true
+	# Data placeholder: constant default.
+	g5_panel._dlg_id.text = "g5:data"
+	g5_panel._dlg_type.select(0) # data
+	g5_panel._dlg_value_text.text = '{"k": 3}'
+	g5_panel._on_type_changed()
+	g5_panel._on_dialog_ok()
+	if not VMLTestUtil.expect_eq((VML.get_data("g5:data") as Dictionary).get("k"), 3,
+			"G5 data placeholder default resolves"):
+		failed = true
+	# Data route: a res://data/... path in the data field.
+	g5_panel._dlg_id.text = "g5:dataroute"
+	g5_panel._dlg_value_text.text = "res://data/game/units/peasant.json"
+	g5_panel._on_dialog_ok()
+	if not VMLTestUtil.expect_eq((VML.get("g5:dataroute") as Dictionary).get("name"), "Peasant",
+			"G5 data route (path default) resolves"):
+		failed = true
+	for g5_id in ["g5:route", "g5:data", "g5:dataroute"]:
+		VML.remove_registry_entry(g5_id)
+	g5_panel.free()
+
+	# --- 0.3.0 G6: Export PCK produces a namespaced, mountable pack ---
+	var MainScreenScript = load("res://addons/vortarismodloader/mods_main_screen.gd")
+	var g6_src := "user://vml/g6_src"
+	_rmtree(g6_src)
+	DirAccess.make_dir_recursive_absolute(g6_src + "/data/g6_mod")
+	FileAccess.open(g6_src + "/manifest.json", FileAccess.WRITE).store_string(
+			'{"name":"G6 Mod","namespace":"g6_mod","version_number":"1.0.0","extra":{"godot":{}}}')
+	FileAccess.open(g6_src + "/data/g6_mod/unit.json", FileAccess.WRITE).store_string(
+			'{"id":"g6_mod:unit","name":"G6 Unit","health":9}')
+	# Files that must NOT end up in the pack.
+	FileAccess.open(g6_src + "/.secret.txt", FileAccess.WRITE).store_string("nope")
+	FileAccess.open(g6_src + "/unit.json.import", FileAccess.WRITE).store_string("nope")
+	FileAccess.open(g6_src + "/unit.json.uid", FileAccess.WRITE).store_string("nope")
+	var g6_out := "user://vml/g6_mod.pck"
+	if FileAccess.file_exists(g6_out):
+		DirAccess.remove_absolute(g6_out)
+	if not VMLTestUtil.expect(MainScreenScript.build_mod_pck("g6_mod", g6_src, g6_out) == OK,
+			"G6 build_mod_pck returns OK"):
+		failed = true
+	var g6_root := "user://vml/g6_pck_root"
+	_rmtree(g6_root)
+	DirAccess.make_dir_recursive_absolute(g6_root)
+	DirAccess.copy_absolute(g6_out, g6_root + "/g6_mod.pck")
+	if not VMLTestUtil.expect(VML.add_mod_root(g6_root), "G6 add pck root"):
+		failed = true
+	VML.rescan()
+	if not VMLTestUtil.expect(VML.get_mod_ids().has("g6_mod"), "G6 pck mod discovered after rescan"):
+		failed = true
+	if not VMLTestUtil.expect_eq((VML.get_data("g6_mod:unit") as Dictionary).get("name"),
+			"G6 Unit", "G6 namespaced pck content readable"):
+		failed = true
+	VML.remove_mod_root(g6_root)
+	_rmtree(g6_root)
+	_rmtree(g6_src)
+
+	# --- 0.3.0 G7: pck install flow (copy into writable root + rescan) ---
+	if not VMLTestUtil.expect(VML.has_method("install_root"), "G7 install_root() exposed to GDScript"):
+		failed = true
+	var g7_src := "user://vml/g7_src"
+	_rmtree(g7_src)
+	DirAccess.make_dir_recursive_absolute(g7_src + "/data/g7_mod")
+	FileAccess.open(g7_src + "/manifest.json", FileAccess.WRITE).store_string(
+			'{"name":"G7 Mod","namespace":"g7_mod","version_number":"1.0.0","extra":{"godot":{}}}')
+	FileAccess.open(g7_src + "/data/g7_mod/unit.json", FileAccess.WRITE).store_string(
+			'{"id":"g7_mod:unit","name":"G7 Unit","health":11}')
+	var g7_out := "user://vml/g7_mod.pck"
+	if FileAccess.file_exists(g7_out):
+		DirAccess.remove_absolute(g7_out)
+	if not VMLTestUtil.expect(MainScreenScript.build_mod_pck("g7_mod", g7_src, g7_out) == OK,
+			"G7 build pck for install"):
+		failed = true
+	var g7_root := "user://vml/g7_pck_root"
+	_rmtree(g7_root)
+	DirAccess.make_dir_recursive_absolute(g7_root)
+	if not VMLTestUtil.expect(VML.add_mod_root(g7_root), "G7 add install root"):
+		failed = true
+	# Mirror _on_pck_selected: copy the pck file into the writable root, then rescan.
+	DirAccess.copy_absolute(g7_out, g7_root + "/g7_mod.pck")
+	VML.rescan()
+	if not VMLTestUtil.expect(VML.get_mod_ids().has("g7_mod"),
+			"G7 installed pck discovered after rescan"):
+		failed = true
+	if not VMLTestUtil.expect_eq((VML.get_data("g7_mod:unit") as Dictionary).get("name"),
+			"G7 Unit", "G7 installed pck content readable"):
+		failed = true
+	VML.remove_mod_root(g7_root)
+	_rmtree(g7_root)
+	_rmtree(g7_src)
 
 	# Final F2 cleanup (the manifestless pck file was kept readable above).
 	_rmtree("user://vml/f2_pck_root")

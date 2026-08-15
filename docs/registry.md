@@ -61,10 +61,12 @@ var hp: int = VML.get_data("mygame:start_health")
   [VML.save_registry()](VMLModLoader.xml#class-vmlmodloader-method-save_registry);
   they are loaded automatically at `VML.finish_startup()` just like any registry
   entry.
-- **Editor**: the **VML IDs** panel (right dock) has a **New Placeholder**
-  button and a **Placeholders** tab. Fill id + type (image/scene/audio/data/…)
-  + default value (a resource path, or a constant for data types) and press
-  Create — it writes into the project registry so it is git-committable.
+- **Editor**: the **VML IDs** panel (right dock) has a single **New** button —
+  registry routes and placeholders are unified. Fill id + type
+  (image/scene/audio/data/…) + default value (a resource path, or a constant for
+  data types) and press OK — it writes into the project registry so it is
+  git-committable. A resource path default is a route; a data type accepts either
+  a JSON constant (placeholder) or a `res://data/...` path (a route).
 - **API**: `VML.set_placeholder(id, type, default, description="")` and
   `VML.get_placeholder_ids(type="")` (list / filter by type). A placeholder is
   also just a registry entry — `get_registry_entry(id)` returns
@@ -77,11 +79,12 @@ var hp: int = VML.get_data("mygame:start_health")
 Open the plugin and you'll find **VML IDs** in the **right dock, next to the
 Inspector** (tab-switched). It lets you:
 
-- browse every registry entry (id / path / type / description), resizable columns;
-- **New** + fill id/path/type/desc → **Apply** to create or update an entry;
-- **New Placeholder** + fill id/type/default (resource path or constant) → Create,
-  plus a **Placeholders** tab listing every declared placeholder
-  (id / type / default / description);
+- browse every registry entry (id / path-or-default / type / description),
+  resizable columns (drag the column headers);
+- **New** (or **Edit**) + fill id/type/default/desc → **OK** to create or update an
+  entry — the default value is a resource path (a route, or a placeholder default)
+  or, for `data`, a JSON constant; a `res://data/...` path in the data field makes
+  it a data route. Leaving the data constant empty stores an empty default.
 - **Delete** a selected entry; **Save** persists to the project-level
   `res://vml/registry.json` (git-committable, falls back to user:// when read-only);
 - **Reload** re-reads from disk.

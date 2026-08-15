@@ -49,7 +49,11 @@ func _get_plugin_name() -> String:
 
 
 func _get_plugin_icon() -> Texture2D:
-	var icon := load("res://addons/vortarismodloader/icon.svg")
+	# Small main-screen tab icon. Godot renders the icon at native texture size in
+	# the main-screen tab button, so the 128x128 icon.svg would blow the tab up.
+	# EditorPlugin exposes a single icon hook shared by the main-screen tab AND the
+	# plugin list, so the small icon_main.svg (24x24) is the right choice for both.
+	var icon := load("res://addons/vortarismodloader/icon_main.svg")
 	if icon is Texture2D:
 		return icon
 	return EditorInterface.get_editor_theme().get_icon("Node", "EditorIcons")
