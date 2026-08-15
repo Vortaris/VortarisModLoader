@@ -1,5 +1,68 @@
 # Release Notes
 
+## 0.2.2
+
+Three-tier feedback pass + new-feature core.
+
+### 问题档 (problem-tier API fixes)
+
+- **`has()` unified semantics**: now reports true for routing providers, reserved
+  ids, **and** live in-memory database entries; new `has_data(id)` queries the DB.
+- **`register_id(id, value, priority)`**: register a direct Variant provider (no
+  file); co-exists with the path-based `register(id, path)`. `unregister` removes
+  both forms; value providers report `data_type = "value"`.
+- **`invoke_hook_ctx(id, ctx, args)`**: context pipeline — handlers receive
+  `(ctx, ...args)` and return a possibly-modified Dictionary; the final ctx is
+  returned. `check_hook` semantics documented (bool = allow; any `false` vetoes).
+- **`finish_startup_auto()` + `is_startup_done()`**: deferred, retries until the
+  scene tree is ready so autoload `_ready` runs first; opt-in via
+  `vortarismodloader/auto_finish_startup`.
+- **`list_ids_in_namespace(ns)` / `count_ids(prefix)`**; `get_all` now returns the
+  union of registry + database ids (values lazily resolved). The mod wizard emits
+  a `data/<id>/sample.json` whose `"id"` matches the path-inferred id.
+
+### 改进档 (improvement tier)
+
+- **Runtime dependency re-check** on enable: missing dep / non-cascadeable /
+  version mismatch / enabled incompatibility now reject the enable with a reason.
+- **Startup data validation** (`validate_mod`): manifest completeness, loadable
+  `mod_main`, parseable data JSON, JSON `"id"` vs path-inferred id cross-check
+  (mismatch → warning). `vortarismodloader/validate_on_startup` (default true)
+  marks problems at boot but never refuses to start.
+- **Error/warning aggregation**: `get_mod_report(id)`, `get_errors_summary()`,
+  `get_startup_report()`; `get_mod_errors` stays errors-only.
+
+### 新功能核心 (new-feature core)
+
+- **`reload_mod(id)`**: hot-reload one mod in place — drops hooks/content/DB,
+  re-scans, re-instantiates `mod_main`, emits `mod_reloaded` (no duplicate hooks).
+- **`set_data(id, value, persist=true)`**: persists the value as a project-level
+  `__registry__` entry (priority 0, mods override it). Registry now defaults to
+  `res://vml/registry.json` (`vortarismodloader/registry_path`, git-committable),
+  falling back to `user://vml/registry.json` in read-only exports; old registry
+  files load unchanged.
+- **Export/scan controls**: `vortarismodloader/export_mods`
+  (`embedded`/`external`/`none`) + `vortarismodloader/scan_user_mods`;
+  `get_mod_package_plan()` / `set_export_policy()`.
+- **Custom mod roots**: `vortarismodloader/mod_paths` + `get_mod_roots` /
+  `add_mod_root` / `remove_mod_root`; `rescan()` respects them.
+
+### Editor & in-game UI
+
+- **Hooks tab** expands each hook to its handler rows [Hook, Handler, Priority, Mod].
+- **ID editor "Browse" tab**: per-id provider list (best highlighted), namespace/
+  type filters.
+- **Config dialog** generates a form from `config_schema` (SpinBox / CheckBox /
+  OptionButton / LineEdit), falling back to JSON.
+- **In-game mod menu** (`demo/scenes/mods_menu.tscn`): toggle, Install Zip,
+  Uninstall (user:// only), Rescan.
+- New doc: `docs/release_mods.md` (release installation paths, scan switches).
+- Full `doc_classes` update for every new method/signal.
+
+### Tests
+
+T0–T57 green (176 assertions), repeatable.
+
 ## 0.2.1
 
 UX + reliability pass.

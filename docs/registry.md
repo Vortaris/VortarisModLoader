@@ -15,18 +15,28 @@ game code:  load("vml://main_menu_bg")  ->  automatically the mod's version
 - Registry entries are **base-layer explicit routes** (priority 0).
 - Any mod provider (priority > 0) wins — override arbitration as usual.
 - The registry is loaded automatically at `VML.finish_startup()`:
-  `res://registry.json` (built-in defaults) then `user://vml/registry.json` (edits).
+  `res://registry.json` (legacy built-in defaults), then the project-level path
+  (default `res://vml/registry.json`, configurable via
+  `vortarismodloader/registry_path`), then `user://vml/registry.json` (legacy edits).
 
 ## API
 
 ```gdscript
 VML.set_registry_entry("main_menu_bg", "res://assets/game/menus/bg.png", "image", "menu background")
-VML.get_registry_entry("main_menu_bg")      # { path, type, description }
+VML.get_registry_entry("main_menu_bg")      # { path, type, description, value? }
 VML.get_registry()                          # { id: { ... } }
 VML.remove_registry_entry("main_menu_bg")
-VML.save_registry()                         # -> user://vml/registry.json
+VML.save_registry()                         # -> project-level path (res://vml/registry.json default)
 VML.load_registry()                         # reload from disk
 ```
+
+## Value providers (persisted `set_data`)
+
+`VML.set_data("mygame:score", 1000, true)` persists the value as a
+`__registry__` **value provider** (priority 0, empty path). It is saved to the
+registry file under a `"value"` key, survives restarts, and is overridden by any
+mod (priority > 0) shipping the same id. Old registry files without a `"value"`
+key load unchanged (fully backward compatible).
 
 ## Editor: "VML IDs" panel
 
