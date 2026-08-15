@@ -1,5 +1,69 @@
 # Release Notes
 
+## 0.3.0
+
+Stage A of the GDExtension rewrite: explicit id overrides, error dialogs +
+console, advanced debug output, pck distribution, and the enable/load state fix.
+
+### A1 — Explicit id overrides (#1)
+
+- `manifest.json` gains `extra.godot.id_overrides`:
+  `{ "data/mymod/units/archer.json": "game:units.elite_archer" }`.
+- The explicit override **wins over path inference** at scan time (the file is
+  indexed under the override id only). Several files may map to the **same id**;
+  they register as normal providers and are resolved by the standard override
+  arbitration (priority → explicit → mod id). Invalid override ids are manifest
+  errors surfaced at discovery.
+- `docs/mod_format.md` documents the field; a `demo/mods-unpacked/override_mod/`
+  fixture exercises it.
+
+### A2 — Error dialogs + console (#3)
+
+- New project setting `vortarismodloader/show_error_dialogs` (bool, default
+  false), registered in `src/register_types.cpp`.
+- After `finish_startup()` / `rescan()`, mod errors are **always printed to the
+  console**; when the setting is on **and** the display is not headless, a modal
+  `AcceptDialog` lists `<mod>: <reason>` lines.
+- New API: `get_error_summary()` returns the exact text that is printed/shown.
+
+### A3 — Advanced debug output (#4)
+
+- New project setting `vortarismodloader/debug_output` (bool, default false).
+- When on, key paths emit `[vortarismodloader][dbg]` lines: discovery/scan per
+  file, registry add/remove/priority, database set/erase/preload, hook
+  register/invoke/emit/check, loader data/resource loads, pck mounts.
+- New API: `get_debug_log()` (recent lines) / `clear_debug_log()`. Gated
+  independently of the existing `vortarismodloader/verbose`.
+
+### A4 — Mod path defaults + pck support (#5)
+
+- Default `vortarismodloader/mod_paths` is now `["res://mods",
+  "res://mods-unpacked"]` — `user://vml/mods` is no longer a default root.
+- `.pck` files under a configured root are **mounted read-only** at startup
+  (`ProjectSettings.load_resource_pack`). Content must be namespaced under
+  `mods/<mod_id>/` so it lands at `res://mods/<mod_id>/` and is discovered like
+  an unpacked mod folder; a pack without a manifest derives its id from the
+  folder. Mounted content is indexed by the normal scanner rules (path inference
+  **and** `id_overrides`).
+- `install_mod_from_zip` now extracts into the first writable configured root
+  (`res://mods` in dev) and is documented as an optional dev convenience —
+  distribution uses packs.
+- `docs/mod_format.md` / `docs/release_mods.md` updated with the pck convention.
+
+### A5 — Enable/load state fix (#6)
+
+- `is_mod_loaded()` now means "enabled **and** content active" — it reflects
+  `enable_mod`/`disable_mod` immediately, including for pure-data mods with no
+  mod_main (previously it stayed false until a rescan re-scanned content).
+
+### Docs, version & tests
+
+- `plugin.cfg` → `0.3.0`; `doc_classes/VMLModLoader.xml` and `README.md` synced
+  (new methods/settings, new defaults, pck/id_overrides).
+- Regression extended to **T67 (220 assertions)** covering id_overrides (T63),
+  debug output gate (T64), pck mount (T65), error summary (T66) and
+  enable/load state (T67). Headless smoke stays green.
+
 ## 0.2.3
 
 Headless CLI debugging entry + AI debugging guide (aligned with VortarisCSV/ECS 0.2.1).

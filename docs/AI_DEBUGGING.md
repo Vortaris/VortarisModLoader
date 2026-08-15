@@ -170,7 +170,7 @@ func execute(scene_tree: SceneTree) -> Variant:
 | `--vortaris-vml-validate <mod_id>` | 校验单个 mod，打印 `{valid, errors, warnings, checked}` | `0` 有效；`1` 无效 / 未知 mod |
 | `--vortaris-vml-list` | 列出已发现 mod（id / namespace / enabled / loaded / deps）+ load_order + namespaces | `0` |
 | `--vortaris-vml-get <id>` | 打印解析值 + id 信息（source / priority / explicit / path / data_type / preloaded） | `0` 找到；`1` 未找到 |
-| `--vortaris-vml-install <zip>` | 事务性安装 zip mod（解压到 user://vml/mods 并激活） | `0` 成功；`1` 失败 |
+| `--vortaris-vml-install <zip>` | 事务性安装 zip mod（开发用，解压到第一个可写 mod 根目录，开发环境为 res://mods） | `0` 成功；`1` 失败 |
 | 其他 / 未知参数 / 缺参数 | 打印用法 | `1` |
 
 ### 命令行示例 / examples

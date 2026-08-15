@@ -16,7 +16,8 @@ const USAGE := "[vortarismodloader] usage:\n" \
 	+ "                                    load order + namespaces\n" \
 	+ "  --vortaris-vml-get <id>           print the parsed value and id info (source / priority /\n" \
 	+ "                                    explicit) for one content id; exit 1 if not found\n" \
-	+ "  --vortaris-vml-install <zip>      transactionally install a zip mod and print the result\n" \
+	+ "  --vortaris-vml-install <zip>      transactionally install a zip mod (dev only, into the\n" \
+	+ "                                    first writable mod root, res://mods in dev) and print the result\n" \
 	+ "Examples:\n" \
 	+ "  godot --headless --path demo --script res://scripts/cli_entry.gd -- --vortaris-vml-report\n" \
 	+ "  godot --headless --path demo --script res://scripts/cli_entry.gd -- \\\n" \

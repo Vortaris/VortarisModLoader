@@ -3,75 +3,84 @@
 This guide covers where mods live in a **released** (exported) game, how a player
 installs them, and how to configure scanning for your export.
 
-## Where installed mods live
+## Two distribution paths (0.3.0)
 
-In a release build, `user://` resolves to the engine's per-project user data
-directory. On Windows that is:
+| Path | Use for | Read-only? |
+|---|---|---|
+| **`.pck` pack** | players / released builds | yes (mounted read-only) |
+| **unpacked folder** | development (source tree) | writable in dev |
+| **`.zip` install** | optional dev convenience | extracted, then treated like a folder |
 
-```
-%APPDATA%\Godot\app_userdata\<project_name>\vml\mods\
-```
+**Recommended:** ship mods as `.pck` packs (read-only, namespaced under
+`mods/<mod_id>/`, no extraction step). Use unpacked folders during development.
+`VML.install_mod_from_zip()` is retained as an optional dev helper.
 
-For the demo (project name `VortarisModLoader Demo`) the path is:
+## Where mods live
 
-```
-C:\Users\<you>\AppData\Roaming\Godot\app_userdata\VortarisModLoader Demo\vml\mods\
-```
-
-Each zip-installed mod is extracted to `vml/mods/<mod_id>/` (transactional:
-temp + manifest validation + rename + rollback). Mod enable-state lives in
-`vml/profile.json`, per-mod configs in `vml/configs/`, and the registry in
-`vml/registry.json` when the project-level path is read-only.
-
-## Zip structure
-
-Any standard zip. The mod root is the folder that directly contains
-`manifest.json` — either the zip root or a single top folder (`<mod_id>/`); the
-installer accepts both.
+Default mod roots (`vortarismodloader/mod_paths`):
 
 ```
-archer_pack.zip
-  manifest.json            # required
-  mod_main.gd              # optional
-  data/archerpack/units/ranger.json   -> id "archerpack:units.ranger"
+res://mods            # .pck packs + zip-installed mods (dev writable)
+res://mods-unpacked   # unpacked dev mod folders
 ```
 
-## Installing a zip at runtime
+A `.pck` found under any configured root is mounted read-only at startup. Its
+internal content must be namespaced under `mods/<mod_id>/` so it appears at
+`res://mods/<mod_id>/` and is discovered like any unpacked mod folder.
 
-The game (or your in-game UI) calls:
+Zip-installed mods are extracted into the first writable root (`res://mods` in
+dev). `user://vml/mods/` is **no longer a default root** (0.3.0).
 
-```gdscript
-var err: int = VML.install_mod_from_zip("user://downloads/archer_pack.zip")
+## Pack structure
+
+A `.pck` is built with Godot's `PCKPacker` (or any packer) and its content is
+namespaced under `mods/<mod_id>/`:
+
+```
+sample_mod.pck
+  mods/sample_mod/
+    manifest.json            # required (or the id is derived from the folder)
+    mod_main.gd              # optional
+    data/sample_mod/units/archer.json   -> id "sample_mod:units.archer"
 ```
 
-The mod is extracted into `user://vml/mods/<mod_id>/` and activated immediately.
+A pack without a manifest still contributes its content; the mod id is derived
+from the `mods/<mod_id>/` folder name.
+
+## Installing mods
+
+- **Packs**: drop the `.pck` under a configured mod root (e.g. the exported game's
+  `mods/` folder). It is mounted at startup — no runtime call needed.
+- **Zip (dev)**: `VML.install_mod_from_zip("path.zip")` extracts into
+  `res://mods/<mod_id>/` (dev). In an exported build `res://` is read-only, so zip
+  install returns an error — use packs there.
 
 ## Scanning controls
 
 | Project setting | Values | Meaning |
 |---|---|---|
-| `vortarismodloader/mod_paths` | PackedStringArray | Root directories scanned for mods. Default `["res://mods-unpacked", "user://vml/mods"]`. |
-| `vortarismodloader/scan_user_mods` | bool (default true) | When false, `user://vml/mods` is **not** scanned at boot — zip installs still insert directly. |
+| `vortarismodloader/mod_paths` | PackedStringArray | Root directories scanned for mods and `.pck` packs. Default `["res://mods", "res://mods-unpacked"]`. |
+| `vortarismodloader/scan_user_mods` | bool (default true) | When false, non-res:// roots are **not** scanned at boot. |
 | `vortarismodloader/export_mods` | `"embedded"` / `"external"` / `"none"` | `embedded` (default): scan res:// roots too. `external`: only user/custom roots. `none`: no scanning at all. |
 | `vortarismodloader/validate_on_startup` | bool (default true) | Validate mods at startup; problems are marked but never refuse to boot. |
 | `vortarismodloader/registry_path` | String | Project-level registry file. Default `res://vml/registry.json`; falls back to `user://vml/registry.json` when res:// is read-only (exports). |
+| `vortarismodloader/show_error_dialogs` | bool (default false) | Show a modal dialog listing mod errors at startup/rescan (non-headless only). Errors are always printed to the console. |
+| `vortarismodloader/debug_output` | bool (default false) | Advanced `[vortarismodloader][dbg]` logging (scan, registry, hooks, data, packs). |
 
 ## Embedded vs external mods
 
-- **Embedded**: mods shipped inside the exported PCK (under `res://mods-unpacked/`
-  or any res:// root in `mod_paths`). Read-only at runtime — players cannot edit
-  them, and `uninstall_mod` refuses them.
-- **External / user**: mods under `user://vml/mods/` (or a custom non-res:// root).
-  Installed/uninstalled at runtime, persisted across launches.
+- **Embedded**: mods shipped inside the exported PCK (under `res://mods/` or
+  `res://mods-unpacked/`). Read-only at runtime — players cannot edit them, and
+  `uninstall_mod` refuses them.
+- **External / user**: mods under a custom non-res:// root. Installed/uninstalled
+  at runtime, persisted across launches.
 
 For a release that ships a curated set of mods, leave `export_mods` at
-`"embedded"`. For a mod-first game that expects players to add mods from disk,
-use `"external"` (skip embedded) or keep the default and let players drop zips
-into `user://vml/mods/` plus install via the in-game UI.
+`"embedded"` and ship the mods as `.pck` packs under `res://mods/`.
 
 ## Custom mod roots
 
-Add a directory of unpacked mods at runtime:
+Add a directory of unpacked mods (or packs) at runtime:
 
 ```gdscript
 VML.add_mod_root("user://my_mods")

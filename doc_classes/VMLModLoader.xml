@@ -15,7 +15,7 @@
 		- [b]Database[/b]: an in-memory repository that can preload every data id for O(1) lookups ([method preload_database], [method get_all], [method set_data], [method delete_data]).
 		- [b]Hooks[/b]: declarative event points, each a namespaced id ([method add_hook], [method invoke_hook], [method emit_hook], [method check_hook]).
 
-		Mods are discovered under `res://mods-unpacked/` and `user://vml/mods/` (zip-installed). Enable/disable/load/unload at runtime with [method enable_mod]/[method disable_mod]; [method install_mod_from_zip] extracts a zip mod transactionally.
+		Mods are discovered under `res://mods` and `res://mods-unpacked/` (default [member get_mod_roots]); `.pck` packs under a root are mounted read-only and their content indexed (content must be namespaced under `mods/&lt;mod_id&gt;/`). Enable/disable/load/unload at runtime with [method enable_mod]/[method disable_mod]; [method install_mod_from_zip] extracts a zip mod into the first writable root (dev only — distribution uses packs).
 
 		在引擎启动时（SCENE 层级，早于任何 autoload）注册，脚本中以 `VML` 单例访问。
 
@@ -421,9 +421,9 @@
 		<method name="is_mod_loaded" qualifiers="const">
 			<return type="bool" />
 			<param index="0" name="mod_id" type="String" />
-			<description>True when the mod's mod_main is instantiated.
+			<description>True when the mod is enabled and its content is active (scanned, or its mod_main instantiated). Reflects enable/disable immediately, including for pure-data mods that have no mod_main.
 
-			 mod 的 mod_main 是否已实例化。</description>
+			 mod 已启用且其内容处于激活状态（已扫描，或 mod_main 已实例化）时为 true。启用/停用立即反映，包括没有 mod_main 的纯数据 mod。</description>
 		</method>
 		<method name="get_mod_dependents" qualifiers="const">
 			<return type="PackedStringArray" />
@@ -463,9 +463,9 @@
 		<method name="install_mod_from_zip">
 			<return type="int" />
 			<param index="0" name="zip_path" type="String" />
-			<description>Transactionally extract a zip mod into user://vml/mods and activate it. Returns an Error code.
+			<description>Transactionally extract a zip mod into the first writable configured mod root (in dev, res://mods) and activate it. Dev-only convenience — distribution uses .pck packs. Returns an Error code.
 
-			 事务性把 zip mod 解压到 user://vml/mods 并激活。返回 Error 码。</description>
+			 事务性把 zip mod 解压到第一个可写的已配置 mod 根目录（开发环境为 res://mods）并激活。仅开发用便捷方式——分发使用 .pck 包。返回 Error 码。</description>
 		</method>
 		<method name="uninstall_mod">
 			<return type="int" />
@@ -497,9 +497,9 @@
 		</method>
 		<method name="get_mod_roots" qualifiers="const">
 			<return type="PackedStringArray" />
-			<description>Configured mod root directories (vortarismodloader/mod_paths; default ["res://mods-unpacked", "user://vml/mods"]).
+			<description>Configured mod root directories (vortarismodloader/mod_paths; default ["res://mods", "res://mods-unpacked"]). `.pck` files under a root are mounted read-only at startup.
 
-			 已配置的 mod 根目录（vortarismodloader/mod_paths；默认 ["res://mods-unpacked", "user://vml/mods"]）。</description>
+			 已配置的 mod 根目录（vortarismodloader/mod_paths；默认 ["res://mods", "res://mods-unpacked"]）。根目录下的 `.pck` 文件会在启动时以只读方式挂载。</description>
 		</method>
 		<method name="add_mod_root">
 			<return type="bool" />
@@ -514,6 +514,24 @@
 			<description>Remove a mod root directory from ProjectSettings. Returns false when absent.
 
 			 从 ProjectSettings 移除一个 mod 根目录。不存在时返回 false。</description>
+		</method>
+		<method name="get_error_summary" qualifiers="const">
+			<return type="String" />
+			<description>Human-readable startup error summary ("&lt;mod&gt;: &lt;err&gt;" lines, one per error, empty when clean). This is what is printed to the console (and shown in the error dialog) after a scan/finish_startup when `vortarismodloader/show_error_dialogs` is on.
+
+			 人类可读的启动错误摘要（每行 "&lt;mod&gt;: &lt;err&gt;"，无错误时为空）。扫描/finish_startup 后打印到控制台（`vortarismodloader/show_error_dialogs` 开启时显示在错误弹窗中）的内容。</description>
+		</method>
+		<method name="get_debug_log" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>Recent advanced-debug lines (gated by `vortarismodloader/debug_output`), each prefixed "[vortarismodloader][dbg]". Empty when the setting is off.
+
+			 最近的高级调试行（由 `vortarismodloader/debug_output` 门控），每行前缀 "[vortarismodloader][dbg]"。设置关闭时为空。</description>
+		</method>
+		<method name="clear_debug_log">
+			<return type="void" />
+			<description>Clear the in-memory advanced-debug log buffer.
+
+			 清空内存中的高级调试日志缓冲区。</description>
 		</method>
 		<method name="reload_resources">
 			<return type="void" />

@@ -72,4 +72,6 @@ dev hot reload refreshes it live.
 var err: int = VML.install_mod_from_zip("user://downloads/archer_pack.zip")
 ```
 
-The zip is extracted to `user://vml/mods/<mod_id>/` and activated.
+The zip is extracted into the first writable configured mod root
+(`res://mods/<mod_id>/` in dev) and activated. Zip install is a dev convenience —
+for shipping mods to players, use `.pck` packs (see [release_mods.md](release_mods.md)).

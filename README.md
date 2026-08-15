@@ -24,9 +24,17 @@ all data) and traditional games alike (texture/model/scene overrides).
 - **Declarative hooks**: hook points are ids; `invoke_hook` (chain rewrite),
   `emit_hook` (broadcast), `check_hook` (predicate). No regex source rewriting.
 - **Override arbitration**: later-loaded mods win; deterministic
-  (priority + explicit flag + mod id).
+  (priority + explicit flag + mod id). `extra.godot.id_overrides` in the manifest
+  maps a file to an explicit id, beating path inference.
 - **Runtime lifecycle**: early scan before autoloads, dynamic enable/disable/
-  load/unload of whole mods, transactional zip install.
+  load/unload of whole mods, transactional zip install (dev convenience).
+- **Pck distribution**: `.pck` packs under a mod root are mounted read-only at
+  startup and their content indexed (namespaced under `mods/<mod_id>/`).
+- **Error dialogs + console**: mod errors are always printed to the console;
+  `vortarismodloader/show_error_dialogs` shows a modal dialog (non-headless).
+- **Advanced debug log**: `vortarismodloader/debug_output` emits
+  `[vortarismodloader][dbg]` lines (scan, registry, hooks, data, packs) and
+  `get_debug_log()` returns the recent lines.
 - **Dev hot reload**: mtime polling — edit a mod file and it applies live;
   `vortarismodloader/verbose` enables detailed load logging.
 - **Native `vml://` loading**: `load("vml://ns:path")` works in exported builds.
@@ -69,8 +77,9 @@ var dmg: float = VML.invoke_hook("game:modify_damage", [10.0], 10.0)
 ```
 
 Put base content under `res://assets/game/` and `res://data/game/` (namespace
-`game`); mods under `res://mods-unpacked/<mod_id>/` (dev) or `user://vml/mods/`
-(runtime zip installs).
+`game`); mods under `res://mods-unpacked/<mod_id>/` (dev folders),
+`res://mods/<mod_id>/` (dev folders or `.pck` packs), or any custom root added
+with `VML.add_mod_root()`. Distribution ships mods as `.pck` packs.
 
 ## Mod format
 
@@ -86,7 +95,27 @@ Put base content under `res://assets/game/` and `res://data/game/` (namespace
 `manifest.json`: `namespace` (= mod id, `^[a-z0-9_]{1,32}$`), `name`,
 `version_number`, `dependencies`/`optional_dependencies` (`"lib_mod"` or
 `"lib_mod@>=1.0"`), `load_before`, `incompatibilities`,
-`extra.godot.main_script`. See [docs/mod_format.md](docs/mod_format.md).
+`extra.godot.main_script`, `extra.godot.id_overrides` (explicit id mapping).
+See [docs/mod_format.md](docs/mod_format.md).
+
+## What's new in 0.3.0
+
+- **Explicit id overrides** (`extra.godot.id_overrides`): map a manifest file to
+  an explicit id — wins over path inference; several files may share one id.
+- **Pck distribution**: `.pck` files under a mod root are mounted read-only at
+  startup; content is indexed with the normal scanner rules. Pcks are the
+  recommended way to ship mods.
+- **Error dialog + console**: mod errors are printed to the console at
+  startup/rescan; `vortarismodloader/show_error_dialogs` (default false) shows a
+  modal dialog (non-headless only).
+- **Advanced debug output**: `vortarismodloader/debug_output` (default false)
+  emits `[vortarismodloader][dbg]` lines; `get_debug_log()`/`clear_debug_log()`
+  expose the recent lines.
+- **Default mod roots** are now `["res://mods", "res://mods-unpacked"]`
+  (`user://vml/mods` is no longer a default). `install_mod_from_zip` extracts into
+  the first writable root (`res://mods` in dev).
+- **Enable/load state fix**: `is_mod_loaded()` reflects enable/disable
+  immediately (pure-data mods included), no rescan required.
 
 ## Migrating from 0.2.1
 
@@ -113,7 +142,7 @@ Put base content under `res://assets/game/` and `res://data/game/` (namespace
   (`vortarismodloader/registry_path`), falling back to `user://vml/registry.json`
   in read-only exports.
 - **Custom mod roots**: mods are scanned from `vortarismodloader/mod_paths`
-  (default `["res://mods-unpacked", "user://vml/mods"]`). Add/remove roots at
+  (default `["res://mods", "res://mods-unpacked"]`). Add/remove roots at
   runtime with `add_mod_root`/`remove_mod_root`; `rescan()` respects them.
 - **Export policy**: `vortarismodloader/export_mods`
   (`embedded`/`external`/`none`) + `vortarismodloader/scan_user_mods` control what
