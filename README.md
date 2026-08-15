@@ -129,6 +129,8 @@ Put base content under `res://assets/game/` and `res://data/game/` (namespace
 - [database.md](docs/database.md) — unified content database
 - [dev_hot_reload.md](docs/dev_hot_reload.md)
 - [release_mods.md](docs/release_mods.md) — shipping mods in a release build
+- [AI_DEBUGGING.md](docs/AI_DEBUGGING.md) — AI / headless-CLI debugging: MCP `run_script`
+  API snippets, CLI args & exit codes
 
 ## Building
 

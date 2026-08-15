@@ -1,5 +1,43 @@
 # Release Notes
 
+## 0.2.3
+
+Headless CLI debugging entry + AI debugging guide (aligned with VortarisCSV/ECS 0.2.1).
+
+### Headless CLI
+
+- **`demo/scripts/cli_entry.gd`** (thin bootstrap, `extends SceneTree`, never mentions
+  the engine singleton at parse time) + **`demo/scripts/cli_impl.gd`** (actual logic,
+  loaded only after a `ClassDB.class_exists` guard passes). Same two-layer design as
+  VortarisCSV: on a fresh clone with no `.godot/extension_list.cfg`, the CLI prints a
+  clear `[vortarismodloader] ERROR: GDExtension not loaded` message + the one-time
+  `godot --headless --editor --import --quit --path demo` hint and exits 1 — no cryptic
+  "Identifier not declared" parse error.
+- Commands (all after `--`, output prefixed `[vortarismodloader]`):
+  - `--vortaris-vml-report` — `get_startup_report()` (broken_mods/errors/warnings) + mod ids + load_order.
+  - `--vortaris-vml-validate <mod_id>` — `validate_mod(id)`; exit 0 valid / 1 invalid or unknown.
+  - `--vortaris-vml-list` — mods with namespace/enabled/loaded/deps + load_order + namespaces.
+  - `--vortaris-vml-get <id>` — `get_data(id)` value + `get_id_info(id)`; exit 1 if not found.
+  - `--vortaris-vml-install <zip>` — `install_mod_from_zip(zip)`; exit 0 on OK.
+  - Unknown / missing args print usage and exit 1.
+- Each command first runs `VML.finish_startup()` (idempotent) so mods are scanned,
+  startup validation has populated `get_startup_report`, and `mod_main`s are
+  instantiated — the same bootstrap `demo/scripts/main.gd` performs.
+
+### Docs
+
+- **`docs/AI_DEBUGGING.md`** — MCP `run_script` API snippets (`get_startup_report`,
+  `get_mod_ids`, `validate_mod`, `get_data`, `get_all`, `add_hook`/`invoke_hook`
+  debugging, `list_hook_handlers`), the CLI argument table with exit-code conventions,
+  editor-panel note (AI uses API/CLI, not the human docks).
+- `README.md` / `README.zh-CN.md` link to the new guide.
+
+### Tests
+
+- Regression extended with CLI-facing assertions (entry script parse/load, no engine
+  singleton identifier in `cli_entry.gd`, `get_startup_report` structure, `validate_mod`
+  shapes, and the `cmd_*` command functions via direct API). All prior T0–T57 stay green.
+
 ## 0.2.2
 
 Three-tier feedback pass + new-feature core.

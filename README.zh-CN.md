@@ -85,6 +85,8 @@ var dmg: float = VML.invoke_hook("game:modify_damage", [10.0], 10.0)  # 钩子
 - [database.md](docs/database.md) — 统一加载数据库
 - [dev_hot_reload.md](docs/dev_hot_reload.md) — 开发热重载
 - [release_mods.md](docs/release_mods.md) — 发布版安装 mod
+- [AI_DEBUGGING.md](docs/AI_DEBUGGING.md) — AI / headless CLI 调试指南：MCP `run_script`
+  API 示例、CLI 参数与退出码
 
 ## 构建
 

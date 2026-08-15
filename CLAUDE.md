@@ -19,8 +19,11 @@ scons -j 8 platform=windows target=template_debug arch=x86_64 build_library=Fals
 # Functional smoke (expect "=== VortarisModLoader Demo OK ===", exit 0)
 godot --headless --path demo --quit
 
-# Regression suite (T0–T30, 66+ assertions; exit 0 = all pass)
+# Regression suite (T0–T62, 196 assertions; exit 0 = all pass)
 godot --headless --path demo --script res://scripts/regression_test.gd
+
+# Headless CLI for AI/automation (see docs/AI_DEBUGGING.md)
+godot --headless --path demo --script res://scripts/cli_entry.gd -- --vortaris-vml-report
 ```
 
 Rules of thumb: **every structural/behavioral change must keep the demo AND the
@@ -142,7 +145,10 @@ Two layers, mirroring VortarisCSV/VortarisECS: pure C++ core (`src/core/`,
 ### Testing conventions
 
 Headless `extends SceneTree` scripts in `demo/scripts/`. `vml_test_util.gd`
-provides `expect/expect_eq`; `regression_test.gd` runs T0–T30 and `quit(0/1)`.
+provides `expect/expect_eq`; `regression_test.gd` runs T0–T62 (196 assertions)
+and `quit(0/1)`. `cli_entry.gd` (thin bootstrap, no engine-singleton identifier)
++ `cli_impl.gd` (actual logic, loaded only after a `ClassDB` guard) form the
+headless CLI; see `docs/AI_DEBUGGING.md`.
 Signal connections to the `VML` singleton **must use named methods, not lambdas**
 — a lambda held across engine shutdown crashes at exit. Test order matters: the
 M6/M7 sections mutate files and re-scan, so keep tests appended in milestone order.
