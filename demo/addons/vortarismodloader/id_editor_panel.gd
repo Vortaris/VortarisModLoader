@@ -10,6 +10,9 @@ const TYPES := ["data", "scene", "script", "image", "audio", "font", "resource"]
 var _tree: Tree
 var _tabs: TabContainer
 var _status: Label
+var _browse_tree: Tree
+var _browse_filter_ns: LineEdit
+var _browse_filter_type: OptionButton
 var _dlg: ConfirmationDialog
 var _dlg_error: Label
 var _dlg_id: LineEdit
@@ -50,6 +53,30 @@ func _ready() -> void:
 	_tabs.add_child(loaded)
 	loaded.item_selected.connect(_on_loaded_selected)
 	loaded.set_meta("loaded_tree", true)
+
+	# Browse tab: every id expandable to its providers (best highlighted),
+	# filtered by namespace and data/type tag.
+	var browse_vbox := VBoxContainer.new()
+	browse_vbox.name = "Browse"
+	_tabs.add_child(browse_vbox)
+	var filter_row := HBoxContainer.new()
+	browse_vbox.add_child(filter_row)
+	filter_row.add_child(_lbl("ns:"))
+	_browse_filter_ns = LineEdit.new()
+	_browse_filter_ns.placeholder_text = "game"
+	_browse_filter_ns.text_changed.connect(func(_t: String): _refresh_browse())
+	filter_row.add_child(_browse_filter_ns)
+	filter_row.add_child(_lbl("type:"))
+	_browse_filter_type = OptionButton.new()
+	_browse_filter_type.add_item("all")
+	for t in TYPES:
+		_browse_filter_type.add_item(t)
+	_browse_filter_type.item_selected.connect(func(_i: int): _refresh_browse())
+	filter_row.add_child(_browse_filter_type)
+	_browse_tree = Tree.new()
+	_setup_columns(_browse_tree, ["ID / Provider", "Path", "Priority", "Explicit"], [150, 220, 60, 60])
+	_browse_tree.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	browse_vbox.add_child(_browse_tree)
 
 	_status = Label.new()
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -129,6 +156,7 @@ func refresh() -> void:
 	_status.text = "%d registry entries · %d ids loaded" % [reg_count, loaded_count]
 	_refresh_registry()
 	_refresh_loaded()
+	_refresh_browse()
 
 
 func _count_loaded_ids() -> int:
@@ -178,6 +206,46 @@ func _find_loaded_tree() -> Tree:
 		if child is Tree and child.has_meta("loaded_tree"):
 			return child
 	return null
+
+
+func _refresh_browse() -> void:
+	if _browse_tree == null or not Engine.has_singleton("VML"):
+		return
+	_browse_tree.clear()
+	var root := _browse_tree.create_item()
+	var ns_filter := _browse_filter_ns.text.strip_edges()
+	var type_filter := _browse_filter_type.get_item_text(_browse_filter_type.selected)
+	var ids := VML.list_ids()
+	for ns in ids:
+		if not ns_filter.is_empty() and not str(ns).begins_with(ns_filter):
+			continue
+		for path in ids[ns]:
+			var full: String = str(ns) + ":" + str(path)
+			var info: Dictionary = VML.get_id_info(full)
+			if type_filter != "all":
+				var dt: String = info.get("data_type", "")
+				var t: String = info.get("type", "")
+				if dt != type_filter and t != type_filter:
+					continue
+			var providers: Dictionary = VML.list_providers(full)
+			var best: int = providers.get("best", -1)
+			var plist: Array = providers.get("providers", [])
+			var item := _browse_tree.create_item(root)
+			item.set_text(0, full)
+			item.set_text(1, "")
+			item.set_text(2, str(plist.size()) + " provider(s)")
+			item.set_text(3, "")
+			var idx := 0
+			for p in plist:
+				var row := _browse_tree.create_item(item)
+				row.set_text(0, str(p.get("mod_id", "")))
+				row.set_text(1, str(p.get("path", "")))
+				row.set_text(2, str(p.get("priority", 0)))
+				row.set_text(3, "yes" if p.get("explicit", false) else "no")
+				if idx == best:
+					row.set_custom_color(0, Color(0.25, 0.85, 0.35))
+				idx += 1
+			item.collapsed = true
 
 
 func _on_selected() -> void:

@@ -345,6 +345,20 @@
 
 			 已声明钩子点，格式 { hook_id: { description, arg_types } }。</description>
 		</method>
+		<method name="list_hook_handlers" qualifiers="const">
+			<return type="Array" />
+			<param index="0" name="hook_id" type="String" />
+			<description>Handlers of a hook in call order (priority desc, mod_id asc) as Array of { mod_id, priority }.
+
+			 某钩子的处理器，按调用顺序（优先级降序、mod_id 升序）返回 Array[{ mod_id, priority }]。</description>
+		</method>
+		<method name="list_providers" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="id" type="String" />
+			<description>Every provider of an id: { providers: [{ mod_id, path, priority, explicit }], best: int } (best = index of the winning provider, -1 when none).
+
+			 id 的全部提供者：{ providers: [{ mod_id, path, priority, explicit }], best: int }（best 为胜出提供者下标，无则 -1）。</description>
+		</method>
 		<method name="get_mod_ids" qualifiers="const">
 			<return type="PackedStringArray" />
 			<description>Every discovered mod id (valid or not).

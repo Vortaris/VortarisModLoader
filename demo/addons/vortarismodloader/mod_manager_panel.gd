@@ -13,6 +13,8 @@ var _wizard: ConfirmationDialog
 var _last_mod_id := ""
 var _config_dlg: ConfirmationDialog
 var _config_text: TextEdit
+var _config_form: VBoxContainer
+var _config_form_controls := {}
 var _config_status: Label
 var _config_error: Label
 var _config_mod_id := ""
@@ -48,7 +50,7 @@ func _ready() -> void:
 	tabs.add_child(_mod_tree)
 
 	_hook_tree = Tree.new()
-	_setup_columns(_hook_tree, ["Hook", "Type", "Detail"], [130, 70, 200])
+	_setup_columns(_hook_tree, ["Hook", "Handler", "Priority", "Mod"], [130, 120, 70, 100])
 	_hook_tree.name = "Hooks"
 	tabs.add_child(_hook_tree)
 
@@ -123,15 +125,26 @@ func _refresh_hooks() -> void:
 		var info: Dictionary = hooks[hook_id]
 		var item := _hook_tree.create_item(root)
 		item.set_text(0, hook_id)
-		item.set_text(1, "registered")
-		item.set_text(2, "%d handler(s) by %s" % [info.get("count", 0), str(info.get("mods", []))])
+		item.set_text(1, "%d handler(s)" % info.get("count", 0))
+		item.set_text(2, "")
+		item.set_text(3, str(info.get("mods", [])))
+		# Expandable handler rows [Hook, Handler, Priority, Mod].
+		var handlers: Array = VML.list_hook_handlers(hook_id)
+		for h in handlers:
+			var row := _hook_tree.create_item(item)
+			row.set_text(0, hook_id)
+			row.set_text(1, str(h.get("mod_id", "")))
+			row.set_text(2, str(h.get("priority", 0)))
+			row.set_text(3, str(h.get("mod_id", "")))
+		item.collapsed = true
 	var points: Dictionary = VML.list_hook_points()
 	for point_id in points:
 		var info: Dictionary = points[point_id]
 		var item := _hook_tree.create_item(root)
 		item.set_text(0, point_id)
 		item.set_text(1, "declared")
-		item.set_text(2, info.get("description", ""))
+		item.set_text(2, "")
+		item.set_text(3, info.get("description", ""))
 
 
 func _on_mod_selected() -> void:
@@ -283,10 +296,13 @@ func _build_config_dialog() -> void:
 	_config_dlg.ok_button_text = "Save"
 	_config_dlg.cancel_button_text = "Cancel"
 	var vbox := VBoxContainer.new()
-	vbox.custom_minimum_size = Vector2(440, 320)
+	vbox.custom_minimum_size = Vector2(460, 380)
 	_config_dlg.add_child(vbox)
 	_config_status = Label.new()
 	vbox.add_child(_config_status)
+	_config_form = VBoxContainer.new()
+	_config_form.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(_config_form)
 	_config_text = TextEdit.new()
 	_config_text.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_child(_config_text)
@@ -306,22 +322,94 @@ func _on_config() -> void:
 	if not Engine.has_singleton("VML"):
 		return
 	_config_mod_id = id
-	_config_text.text = JSON.stringify(VML.get_config(id), "  ")
-	_config_error.text = ""
 	var schema: Dictionary = VML.get_config_schema(id)
 	_config_status.text = "mod: %s  ·  config_schema: %s" % [id, "declared" if not schema.is_empty() else "none"]
-	_config_dlg.popup_centered(Vector2(480, 380))
+	var values: Dictionary = VML.get_config(id)
+	if _build_schema_form(schema, values):
+		_config_text.visible = false
+		_config_form.visible = true
+	else:
+		_config_form.visible = false
+		_config_text.visible = true
+		_config_text.text = JSON.stringify(values, "  ")
+	_config_error.text = ""
+	_config_dlg.popup_centered(Vector2(480, 420))
+
+
+# Builds per-key form controls from a JSON-Schema style config_schema:
+# number -> SpinBox, boolean -> CheckBox, string+enum -> OptionButton, else LineEdit.
+# Returns false (fall back to JSON TextEdit) when no usable schema.
+func _build_schema_form(schema: Dictionary, values: Dictionary) -> bool:
+	for child in _config_form.get_children():
+		child.queue_free()
+	_config_form_controls.clear()
+	var props: Variant = schema.get("properties")
+	if props is not Dictionary or (props as Dictionary).is_empty():
+		return false
+	for key in props:
+		var p: Variant = props[key]
+		if p is not Dictionary:
+			continue
+		var type := String((p as Dictionary).get("type", "string"))
+		var label := Label.new()
+		label.text = str(key)
+		_config_form.add_child(label)
+		var ctl: Control
+		if type == "number" or type == "integer":
+			var spin := SpinBox.new()
+			spin.min_value = -1000000
+			spin.max_value = 1000000
+			spin.value = float(values.get(key, 0.0))
+			ctl = spin
+		elif type == "boolean":
+			var cb := CheckBox.new()
+			cb.text = str(key)
+			cb.button_pressed = bool(values.get(key, false))
+			ctl = cb
+		elif (p as Dictionary).has("enum"):
+			var ob := OptionButton.new()
+			for e in (p as Dictionary)["enum"]:
+				ob.add_item(str(e))
+			var cur := str(values.get(key, ""))
+			var idx := 0
+			for i in ob.item_count:
+				if ob.get_item_text(i) == cur:
+					idx = i
+					break
+			ob.select(idx)
+			ctl = ob
+		else:
+			var le := LineEdit.new()
+			le.text = str(values.get(key, ""))
+			ctl = le
+		_config_form.add_child(ctl)
+		_config_form_controls[str(key)] = ctl
+	return true
 
 
 func _on_config_save() -> void:
-	var parsed = JSON.parse_string(_config_text.text)
-	if not (parsed is Dictionary):
-		_config_error.text = "invalid JSON — not saved; fix the text and Save again"
-		_config_dlg.popup_centered(Vector2(480, 380))
-		return
-	if VML.set_config(_config_mod_id, parsed):
+	var values: Dictionary
+	if _config_form.visible and not _config_form_controls.is_empty():
+		for key in _config_form_controls:
+			var ctl = _config_form_controls[key]
+			if ctl is SpinBox:
+				values[key] = ctl.value
+			elif ctl is CheckBox:
+				values[key] = ctl.button_pressed
+			elif ctl is OptionButton:
+				values[key] = ctl.get_item_text(ctl.selected)
+			elif ctl is LineEdit:
+				values[key] = ctl.text
+	else:
+		var parsed = JSON.parse_string(_config_text.text)
+		if not (parsed is Dictionary):
+			_config_error.text = "invalid JSON — not saved; fix the text and Save again"
+			_config_dlg.popup_centered(Vector2(480, 420))
+			return
+		values = parsed
+	if VML.set_config(_config_mod_id, values):
 		_status.text = "config saved for %s" % _config_mod_id
 		print("VML: config saved for ", _config_mod_id)
 	else:
 		_config_error.text = "failed to save config"
-		_config_dlg.popup_centered(Vector2(480, 380))
+		_config_dlg.popup_centered(Vector2(480, 420))

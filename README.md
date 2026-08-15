@@ -88,6 +88,38 @@ Put base content under `res://assets/game/` and `res://data/game/` (namespace
 `"lib_mod@>=1.0"`), `load_before`, `incompatibilities`,
 `extra.godot.main_script`. See [docs/mod_format.md](docs/mod_format.md).
 
+## Migrating from 0.2.1
+
+- **`register` vs `register_id`**: `VML.register(id, path)` is unchanged. The new
+  `VML.register_id(id, value, priority)` registers a direct Variant provider (no
+  file). Don't confuse the two — the path variant stays under the `register` name.
+- **`has` new semantics**: `has()` now also returns true when the id has a live
+  in-memory database entry (previously routing/reservation only). Use
+  `has_data(id)` to query the database specifically.
+- **`finish_startup` vs `finish_startup_auto`**: `finish_startup()` is unchanged
+  (call it from a bootstrap autoload). `finish_startup_auto()` defers and retries
+  until the scene tree is ready, so autoload `_ready` runs first — set
+  `vortarismodloader/auto_finish_startup` to trigger it automatically.
+- **`get_mod_errors` vs `get_mod_report`/`get_errors_summary`**: `get_mod_errors`
+  stays errors-only. For warnings too, use `get_mod_report(id)`; for every
+  problematic mod at once, `get_errors_summary()`; `get_startup_report()` gives
+  the aggregate.
+- **`get_all` new semantics**: now returns the union of registry ids and loaded
+  database ids (values lazily resolved). The shape `{ canonical_id: value }` is
+  unchanged.
+- **`set_data` persistence**: `set_data(id, value, true)` persists the value as a
+  project-level `__registry__` entry (priority 0, so mods override it). The
+  registry now defaults to `res://vml/registry.json`
+  (`vortarismodloader/registry_path`), falling back to `user://vml/registry.json`
+  in read-only exports.
+- **Custom mod roots**: mods are scanned from `vortarismodloader/mod_paths`
+  (default `["res://mods-unpacked", "user://vml/mods"]`). Add/remove roots at
+  runtime with `add_mod_root`/`remove_mod_root`; `rescan()` respects them.
+- **Export policy**: `vortarismodloader/export_mods`
+  (`embedded`/`external`/`none`) + `vortarismodloader/scan_user_mods` control what
+  gets scanned; query with `get_mod_package_plan()` and set with
+  `set_export_policy()`.
+
 ## Docs
 
 - [mod_format.md](docs/mod_format.md) — mod package format & manifest reference
@@ -96,6 +128,7 @@ Put base content under `res://assets/game/` and `res://data/game/` (namespace
 - [hooks.md](docs/hooks.md) — declarative hooks guide
 - [database.md](docs/database.md) — unified content database
 - [dev_hot_reload.md](docs/dev_hot_reload.md)
+- [release_mods.md](docs/release_mods.md) — shipping mods in a release build
 
 ## Building
 
