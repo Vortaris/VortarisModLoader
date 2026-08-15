@@ -751,4 +751,75 @@ func _initialize() -> void:
 		failed = true
 	DirAccess.remove_absolute(extra_root)
 
+	# --- 0.2.3: headless CLI debugging entry ---
+	# T58: the thin bootstrap + impl scripts parse and load with the extension present.
+	var cli_entry_script = load("res://scripts/cli_entry.gd")
+	if not VMLTestUtil.expect(cli_entry_script != null, "T58 cli_entry.gd loads"):
+		failed = true
+	var cli_impl_script = load("res://scripts/cli_impl.gd")
+	if not VMLTestUtil.expect(cli_impl_script != null, "T58 cli_impl.gd loads"):
+		failed = true
+
+	# T58b: the fresh-clone invariant — cli_entry.gd must contain no engine singleton
+	# identifier. On a fresh clone without .godot/extension_list.cfg an unresolved
+	# identifier is a hard parse error that would mask the guard's clear error message.
+	var cli_src: String = FileAccess.get_file_as_string("res://scripts/cli_entry.gd")
+	var vml_re := RegEx.new()
+	vml_re.compile("\\bVML\\b")
+	if not VMLTestUtil.expect(vml_re.search(cli_src) == null,
+			"T58b cli_entry.gd has no standalone engine singleton identifier"):
+		failed = true
+
+	# T59: get_startup_report shape + badjson_mod listed broken.
+	var sr59: Dictionary = VML.get_startup_report()
+	if not VMLTestUtil.expect(sr59.has("broken_mods") and sr59.has("errors") and sr59.has("warnings"),
+			"T59 startup report has broken_mods/errors/warnings"):
+		failed = true
+	if not VMLTestUtil.expect((sr59.get("broken_mods") as PackedStringArray).has("badjson_mod"),
+			"T59 startup report lists badjson_mod broken"):
+		failed = true
+
+	# T60: validate_mod on a known good mod returns the full structure.
+	var v60: Dictionary = VML.validate_mod("mymod")
+	if not VMLTestUtil.expect(v60.has("valid") and v60.has("errors") and v60.has("warnings") and v60.has("checked"),
+			"T60 validate_mod returns valid/errors/warnings/checked"):
+		failed = true
+	if not VMLTestUtil.expect(v60.get("valid") == true, "T60 mymod validates"):
+		failed = true
+	if not VMLTestUtil.expect(int(v60.get("checked")) >= 1, "T60 mymod data checked"):
+		failed = true
+
+	# T61: validate_mod on the broken fixture is invalid with errors.
+	var v61: Dictionary = VML.validate_mod("badjson_mod")
+	if not VMLTestUtil.expect(v61.get("valid") == false, "T61 badjson_mod invalid"):
+		failed = true
+	if not VMLTestUtil.expect((v61.get("errors") as Array).size() > 0, "T61 badjson_mod errors"):
+		failed = true
+
+	# T62: the CLI command functions (static, exercised via direct API) return the
+	# documented exit codes without simulating a full CLI subprocess.
+	if not VMLTestUtil.expect(cli_impl_script.cmd_report() == 0, "T62 cmd_report exit 0"):
+		failed = true
+	if not VMLTestUtil.expect(cli_impl_script.cmd_list() == 0, "T62 cmd_list exit 0"):
+		failed = true
+	if not VMLTestUtil.expect(cli_impl_script.cmd_validate("mymod") == 0, "T62 cmd_validate mymod exit 0"):
+		failed = true
+	if not VMLTestUtil.expect(cli_impl_script.cmd_validate("badjson_mod") == 1, "T62 cmd_validate badjson exit 1"):
+		failed = true
+	if not VMLTestUtil.expect(cli_impl_script.cmd_validate("nonexistent_mod") == 1,
+			"T62 cmd_validate unknown exit 1"):
+		failed = true
+	if not VMLTestUtil.expect(cli_impl_script.cmd_get("game:units.knight") == 0, "T62 cmd_get found exit 0"):
+		failed = true
+	if not VMLTestUtil.expect(cli_impl_script.cmd_get("nope:missing") == 1, "T62 cmd_get missing exit 1"):
+		failed = true
+	if not VMLTestUtil.expect(cli_impl_script.cmd_install("res://mods/missing.zip") == 1,
+			"T62 cmd_install bad zip exit 1"):
+		failed = true
+	if not VMLTestUtil.expect(cli_impl_script.cmd_install("res://mods/archer_pack.zip") == 0,
+			"T62 cmd_install archerpack exit 0"):
+		failed = true
+	if not VMLTestUtil.expect(VML.uninstall_mod("archerpack") == OK, "T62 cleanup uninstall archerpack"):
+		failed = true
+
 	quit(1 if failed else 0)
