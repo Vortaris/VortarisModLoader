@@ -18,6 +18,16 @@ struct ProviderEntry {
 	int priority = 0; // higher wins
 	bool explicit_ = false; // explicit register() outranks implicit at equal priority
 	godot::Variant value; // value provider: used when physical_path.is_empty()
+	// Singleton markers (`__registry__`/`__reroute__`/`__explicit__`): when true,
+	// re-registration replaces any prior provider from the same marker mod instead
+	// of stacking, so edits/reroutes/placeholders/removals take effect immediately
+	// with no stale provider left behind. Real mod content files (id_overrides)
+	// keep `singleton = false` so a mod may map several files onto one id.
+	bool singleton = false;
+	// Insertion-order sequence number. Used as the final deterministic tiebreak in
+	// provider_higher so equal providers (same priority/explicit/mod_id) resolve to
+	// a strict total order — never an unspecified std::sort permutation.
+	uint64_t seq = 0;
 };
 
 // The heart of id-indexing: `id -> sorted provider list`. The best provider for
@@ -51,10 +61,13 @@ public:
 private:
 	struct Entry {
 		std::vector<ProviderEntry> providers;
-		void insert_sorted(const ProviderEntry &p_e);
+		// `p_seq_counter` supplies the insertion-order sequence number (deterministic
+		// tiebreak; see ProviderEntry::seq).
+		void insert_sorted(const ProviderEntry &p_e, uint64_t &p_seq_counter);
 		const ProviderEntry *best() const;
 	};
 	std::unordered_map<ResourceIdKey, Entry, ResourceIdKeyHash> map_;
+	uint64_t next_seq_ = 0; // monotonic insertion counter, never reset
 };
 
 } // namespace vortarismodloader

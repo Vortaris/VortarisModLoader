@@ -127,6 +127,58 @@ console, advanced debug output, pck distribution, and the enable/load state fix.
   save/load round-trip (T71–T73). Headless smoke and `--editor --import --quit`
   stay green.
 
+### 0.3.0 review fixes (F1–F8)
+
+Code-review hardening of the 0.3.0 baseline.
+
+- **F1 — registry re-registration is immediate.** `RegistryIndex` now treats
+  `__registry__` / `__reroute__` / `__explicit__` providers as singletons: adding a
+  new one first removes the mod's prior provider for that id. Editing a registry
+  entry, a second `reroute`, a `set_placeholder` type change, and
+  `remove_registry_entry` all take effect immediately with no stale provider left
+  behind (`has()` flips correctly, `get_id_info` resolves the new route).
+- **F2 — manifestless `.pck` mods honour `export_mods`.** `mount_packs()` and the
+  manifestless-pck discovery step now apply the same policy as the discovery loop:
+  `none` loads nothing (packs are not even mounted) and `external` skips the
+  embedded `res://` root, so a pack's content is not registered when the policy
+  forbids it.
+- **F3 — `set_mod_order` validates the full order.** A partial list that hoists a
+  mod above its unlisted dependency is rejected; the persisted
+  `user://vml/load_order.json` is validated on load too — an invalid file falls
+  back to the default topological order with a warning instead of corrupting the
+  load order.
+- **F4 — project settings are no longer reset at startup.**
+  `vortarismodloader/show_error_dialogs` and `debug_output` only get their default
+  written when the setting is absent, so a `true` in `project.godot` survives
+  every launch.
+- **F5 — legacy 0.2.x zip mods get a one-time migration notice.** 0.3.0 removed
+  `user://vml/mods` from the default `mod_paths` (distribution now uses `.pck`
+  packs). On startup, if `user://vml/mods` still contains zip-installed mods and is
+  not a configured root, a one-time notice is printed explaining the change:
+  **move the mods into a configured root (e.g. `res://mods`) or call
+  `VML.add_mod_root("user://vml/mods")`**. `get_legacy_mod_migration_notice()`
+  returns the hint; a marker under `user://vml/` keeps it one-time across restarts.
+- **F6 — `install_root()` uses a writable probe.** A plain `res://`/`user://`
+  prefix check could return a read-only `res://` root in an exported build (or
+  while a pack is mounted). The first configured root that passes a create+remove
+  probe is chosen, custom absolute-path roots are eligible, and exports fall back
+  to `user://vml/mods`.
+- **F7 — deterministic same-mod provider order.** Equal providers (a mod mapping
+  several files onto one id via `id_overrides`) now resolve with an insertion-order
+  tiebreak, so the winner is a strict, stable total order instead of an unspecified
+  `std::sort` permutation.
+- **F8 — error dialogs are debounced and editor-safe.** `maybe_show_error_dialogs`
+  skips the editor (`is_editor_hint()`) and pops at most one `AcceptDialog` per
+  distinct error summary, so repeated rescans no longer stack modals.
+
+### Tests (review fixes)
+
+- Regression extended to **290 assertions**: per-fix coverage for every scenario
+  above (F1 re-register/reroute/placeholder/remove, F2 policy × 3, F3 partial
+  list + persisted bad file, F4 setting guard, F5 notice + re-add root, F6
+  writable-root selection, F7 deterministic winner, F8 no dialog stacking).
+  Headless smoke stays green.
+
 ## 0.2.3
 
 Headless CLI debugging entry + AI debugging guide (aligned with VortarisCSV/ECS 0.2.1).

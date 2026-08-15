@@ -1064,4 +1064,248 @@ func _initialize() -> void:
 	if not VMLTestUtil.expect(not VML.has("mygame:ph.const"), "T73 placeholder cleanup"):
 		failed = true
 
+	# --- 0.3.0 F1: registry re-registration / reroute / placeholder / remove must
+	# be immediate with no stale provider residue ---
+	if not VMLTestUtil.expect(VML.set_registry_entry("f1:switcher", "res://data/game/units/peasant.json"),
+			"F1 set_registry_entry initial"):
+		failed = true
+	if not VMLTestUtil.expect_eq((VML.get("f1:switcher") as Dictionary).get("name"), "Peasant",
+			"F1 initial registry route"):
+		failed = true
+	if not VMLTestUtil.expect(VML.set_registry_entry("f1:switcher",
+			"res://mods-unpacked/sample_mod/data/game/units/knight.json"),
+			"F1 set_registry_entry re-register new path"):
+		failed = true
+	if not VMLTestUtil.expect_eq((VML.get("f1:switcher") as Dictionary).get("name"), "Knight",
+			"F1 re-registered path wins immediately (no stale provider)"):
+		failed = true
+	if not VMLTestUtil.expect_eq(VML.get_id_info("f1:switcher").get("path"),
+			"res://mods-unpacked/sample_mod/data/game/units/knight.json",
+			"F1 get_id_info resolves the new path"):
+		failed = true
+	if not VMLTestUtil.expect(VML.remove_registry_entry("f1:switcher"), "F1 remove_registry_entry"):
+		failed = true
+	if not VMLTestUtil.expect(not VML.has("f1:switcher"),
+			"F1 has() false after remove (no stale provider)"):
+		failed = true
+	# Reroute twice: the second must win (old __reroute__ replaced, not stacked).
+	if not VMLTestUtil.expect(VML.register("f1:rt", "res://data/game/units/peasant.json"),
+			"F1 register for reroute"):
+		failed = true
+	if not VMLTestUtil.expect(VML.reroute("f1:rt",
+			"res://mods-unpacked/sample_mod/data/game/units/knight.json"), "F1 reroute 1"):
+		failed = true
+	if not VMLTestUtil.expect(VML.reroute("f1:rt",
+			"res://mods-unpacked/override_mod/data/override_mod/units/archer.json"), "F1 reroute 2"):
+		failed = true
+	if not VMLTestUtil.expect_eq((VML.get("f1:rt") as Dictionary).get("name"), "Elite Archer",
+			"F1 second reroute wins (no stacked reroute)"):
+		failed = true
+	if not VMLTestUtil.expect(VML.clear_reroute("f1:rt"), "F1 clear_reroute"):
+		failed = true
+	if not VMLTestUtil.expect_eq((VML.get("f1:rt") as Dictionary).get("name"), "Peasant",
+			"F1 clear_reroute restores original"):
+		failed = true
+	VML.unregister("f1:rt")
+	# Placeholder type change: data -> image must replace the old provider.
+	if not VMLTestUtil.expect(VML.set_placeholder("f1:ph", "data", {"k": 1}, "p1"),
+			"F1 set_placeholder data"):
+		failed = true
+	if not VMLTestUtil.expect_eq((VML.get_data("f1:ph") as Dictionary).get("k"), 1,
+			"F1 data placeholder"):
+		failed = true
+	var f1_ph_img := "user://vml/f1_ph.png"
+	var f1_img := Image.create(4, 4, false, Image.FORMAT_RGBA8)
+	f1_img.fill(Color(0, 0, 1, 1))
+	f1_img.save_png(f1_ph_img)
+	if not VMLTestUtil.expect(VML.set_placeholder("f1:ph", "image", f1_ph_img, "p2"),
+			"F1 set_placeholder change type to image"):
+		failed = true
+	if not VMLTestUtil.expect(VML.get_resource("f1:ph") is ImageTexture,
+			"F1 placeholder type change takes effect (old data provider gone)"):
+		failed = true
+	VML.remove_registry_entry("f1:ph")
+	DirAccess.remove_absolute(f1_ph_img)
+
+	# --- 0.3.0 F2: manifestless pck mod must honour the export_mods policy ---
+	var f2_root := "user://vml/f2_pck_root"
+	_rmtree(f2_root)
+	DirAccess.make_dir_recursive_absolute(f2_root + "/stage/mods/f2_nomani/data/f2_nomani")
+	FileAccess.open(f2_root + "/stage/mods/f2_nomani/data/f2_nomani/unit.json", FileAccess.WRITE).store_string(
+			'{"id":"f2_nomani:unit","name":"F2 NoManifest","health":3}')
+	var f2_pck := f2_root + "/f2_nomani.pck"
+	if FileAccess.file_exists(f2_pck):
+		DirAccess.remove_absolute(f2_pck)
+	var f2_packer := PCKPacker.new()
+	var f2_ok: bool = f2_packer.pck_start(f2_pck) == OK
+	if f2_ok:
+		f2_ok = f2_packer.add_file("res://mods/f2_nomani/data/f2_nomani/unit.json",
+				f2_root + "/stage/mods/f2_nomani/data/f2_nomani/unit.json") == OK and f2_ok
+		f2_ok = f2_packer.flush() == OK and f2_ok
+	if not VMLTestUtil.expect(f2_ok, "F2 PCKPacker builds manifestless pck"):
+		failed = true
+	if not VMLTestUtil.expect(VML.add_mod_root(f2_root), "F2 add pck staging root"):
+		failed = true
+	VML.set_export_policy("none", true)
+	VML.rescan()
+	if not VMLTestUtil.expect(not VML.get_mod_ids().has("f2_nomani"),
+			"F2 export_mods=none skips manifestless pck mod"):
+		failed = true
+	VML.set_export_policy("external", true)
+	VML.rescan()
+	if not VMLTestUtil.expect(not VML.get_mod_ids().has("f2_nomani"),
+			"F2 export_mods=external skips embedded res:// pck root"):
+		failed = true
+	VML.set_export_policy("embedded", true)
+	VML.rescan()
+	if not VMLTestUtil.expect(VML.get_mod_ids().has("f2_nomani"),
+			"F2 export_mods=embedded registers manifestless pck mod"):
+		failed = true
+	if not VMLTestUtil.expect(VML.has("f2_nomani:unit"), "F2 manifestless pck content indexed"):
+		failed = true
+	VML.remove_mod_root(f2_root)
+	# Keep f2_root (and the pck file) on disk for the rest of this session: the pack
+	# is already mounted in the VFS and cannot be unmounted, and deleting the file
+	# would make its virtual content unreadable on later rescans. Final cleanup runs
+	# at the end of the suite.
+
+	# --- 0.3.0 F3: set_mod_order partial list must not violate dependencies ---
+	if not VMLTestUtil.expect(VML.set_mod_order(["mymod"]) == false,
+			"F3 set_mod_order rejects partial list (dep mylib unlisted)"):
+		failed = true
+	if not VMLTestUtil.expect(VML.get_mod_order().is_empty(), "F3 rejected order not persisted"):
+		failed = true
+	if not VMLTestUtil.expect(VML.get_load_order().find("mylib") < VML.get_load_order().find("mymod"),
+			"F3 load order unchanged after rejection"):
+		failed = true
+	if not VMLTestUtil.expect(VML.set_mod_order(["mylib"]), "F3 set_mod_order partial dep-only list"):
+		failed = true
+	if not VMLTestUtil.expect(VML.get_load_order().find("mylib") < VML.get_load_order().find("mymod"),
+			"F3 dep-only custom order still keeps mylib before mymod"):
+		failed = true
+	# A persisted bad file (written directly) falls back to the default order.
+	DirAccess.remove_absolute("user://vml/load_order.json")
+	var f3_bad := ["mymod"] # mymod before its dep mylib — invalid
+	FileAccess.open("user://vml/load_order.json", FileAccess.WRITE).store_string(JSON.stringify(f3_bad))
+	VML.rescan()
+	if not VMLTestUtil.expect(VML.get_load_order().find("mylib") < VML.get_load_order().find("mymod"),
+			"F3 persisted bad load_order falls back to default"):
+		failed = true
+	if not VMLTestUtil.expect(VML.get_mod_order().is_empty(),
+			"F3 bad persisted order ignored (custom_load_order empty)"):
+		failed = true
+	DirAccess.remove_absolute("user://vml/load_order.json")
+	VML.rescan()
+
+	# --- 0.3.0 F4: project-settings defaults must not clobber user values at startup ---
+	var f4_old_dialogs: Variant = ProjectSettings.get_setting("vortarismodloader/show_error_dialogs", false)
+	ProjectSettings.set_setting("vortarismodloader/show_error_dialogs", true)
+	if not VMLTestUtil.expect(ProjectSettings.has_setting("vortarismodloader/show_error_dialogs"),
+			"F4 show_error_dialogs registered as a project setting"):
+		failed = true
+	if not VMLTestUtil.expect(ProjectSettings.get_setting("vortarismodloader/show_error_dialogs", false) == true,
+			"F4 a set true is not re-defaulted to false (has_setting guard)"):
+		failed = true
+	ProjectSettings.set_setting("vortarismodloader/show_error_dialogs", f4_old_dialogs)
+
+	# --- 0.3.0 F5: legacy user://vml/mods mods get a one-time migration notice ---
+	DirAccess.remove_absolute("user://vml/.legacy_mods_migration_notified")
+	var f5_legacy := "user://vml/mods/f5_legacy"
+	_rmtree(f5_legacy)
+	DirAccess.make_dir_recursive_absolute(f5_legacy + "/data/f5_legacy")
+	FileAccess.open(f5_legacy + "/manifest.json", FileAccess.WRITE).store_string(
+			'{"name":"F5 Legacy","namespace":"f5_legacy","version_number":"1.0.0","extra":{"godot":{}}}')
+	FileAccess.open(f5_legacy + "/data/f5_legacy/unit.json", FileAccess.WRITE).store_string(
+			'{"id":"f5_legacy:unit","name":"Legacy","health":1}')
+	VML.rescan()
+	if not VMLTestUtil.expect(VML.get_legacy_mod_migration_notice().length() > 0,
+			"F5 legacy user://vml/mods mod triggers migration notice"):
+		failed = true
+	if not VMLTestUtil.expect(not VML.get_mod_ids().has("f5_legacy"),
+			"F5 legacy user:// mod not auto-discovered (default roots unchanged)"):
+		failed = true
+	VML.rescan()
+	if not VMLTestUtil.expect(VML.get_legacy_mod_migration_notice().is_empty(),
+			"F5 migration notice is one-time per session"):
+		failed = true
+	VML.add_mod_root("user://vml/mods")
+	VML.rescan()
+	if not VMLTestUtil.expect(VML.get_mod_ids().has("f5_legacy"),
+			"F5 legacy mod discovered after add_mod_root(user://vml/mods)"):
+		failed = true
+	if not VMLTestUtil.expect(VML.has("f5_legacy:unit"), "F5 legacy mod content indexed"):
+		failed = true
+	VML.remove_mod_root("user://vml/mods")
+	_rmtree(f5_legacy)
+	DirAccess.remove_absolute("user://vml/.legacy_mods_migration_notified")
+	VML.rescan()
+
+	# --- 0.3.0 F6: install_root() picks a writable root, never a read-only res:// ---
+	# A pck mounted earlier in this suite makes res:// read-only — the exported-build
+	# condition this fix targets. Add a writable custom absolute-path root and make
+	# sure a zip install lands there (not in read-only res://mods).
+	var f6_abs := ProjectSettings.globalize_path("user://vml/f6_abs_root")
+	_rmtree(f6_abs)
+	DirAccess.make_dir_recursive_absolute(f6_abs)
+	var f6_res_probe := "res://mods/.vml_f6_probe"
+	DirAccess.make_dir_recursive_absolute(f6_res_probe)
+	var f6_res_writable := DirAccess.dir_exists_absolute(f6_res_probe)
+	if f6_res_writable:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(f6_res_probe))
+	if not VMLTestUtil.expect(VML.add_mod_root(f6_abs), "F6 add custom absolute-path root"):
+		failed = true
+	if not VMLTestUtil.expect(VML.install_mod_from_zip("res://mods/archer_pack.zip") == OK,
+			"F6 zip install succeeds via a writable root"):
+		failed = true
+	var f6_root: String = VML.get_mod_path("archerpack")
+	if f6_res_writable:
+		if not VMLTestUtil.expect(f6_root.begins_with("res://mods/"),
+				"F6 writable res:// root selected first"):
+			failed = true
+	else:
+		if not VMLTestUtil.expect(f6_root.begins_with(f6_abs + "/"),
+				"F6 read-only res:// skipped; writable custom root selected (got " + f6_root + ")"):
+			failed = true
+	if not VMLTestUtil.expect(VML.uninstall_mod("archerpack") == OK, "F6 cleanup uninstall archerpack"):
+		failed = true
+	if not VMLTestUtil.expect(VML.remove_mod_root(f6_abs), "F6 cleanup remove custom root"):
+		failed = true
+	_rmtree(f6_abs)
+
+	# --- 0.3.0 F7: deterministic winner when a mod maps two files to one id ---
+	var f7_best: String = VML.get_id_info("game:elite.archer").get("path", "")
+	var f7_is_override := f7_best == "res://mods-unpacked/override_mod/data/override_mod/units/archer.json" \
+			or f7_best == "res://mods-unpacked/override_mod/data/override_mod/units/archer_b.json"
+	if not VMLTestUtil.expect(f7_is_override, "F7 same-mod multi-file winner is one of the mapped files"):
+		failed = true
+	var f7_list1: Array = VML.list_providers("game:elite.archer").get("providers", [])
+	if not VMLTestUtil.expect_eq(f7_list1.size(), 2, "F7 two providers (multi-file id_override)"):
+		failed = true
+	# A re-scan re-sorts the same providers; the winning path must stay deterministic
+	# (a stable total order, never an unspecified std::sort permutation).
+	VML.reload_mod("override_mod")
+	var f7_list2: Array = VML.list_providers("game:elite.archer").get("providers", [])
+	if not VMLTestUtil.expect_eq(f7_list2.size(), 2, "F7 providers stable after reload_mod"):
+		failed = true
+	var f7_best2: String = VML.get_id_info("game:elite.archer").get("path", "")
+	if not VMLTestUtil.expect_eq(f7_best2, f7_best, "F7 winner deterministic across re-scan"):
+		failed = true
+
+	# --- 0.3.0 F8: error dialog lifecycle (headless-safe, debounced) ---
+	ProjectSettings.set_setting("vortarismodloader/show_error_dialogs", true)
+	VML.rescan()
+	VML.rescan() # repeated rescans with the same errors must not stack dialogs
+	var f8_dlg_count := 0
+	for child in get_root().get_children():
+		if child is AcceptDialog:
+			f8_dlg_count += 1
+	if not VMLTestUtil.expect_eq(f8_dlg_count, 0, "F8 no error dialogs accumulate headless"):
+		failed = true
+	if not VMLTestUtil.expect(VML.get_error_summary().length() > 0, "F8 error summary still available"):
+		failed = true
+	ProjectSettings.set_setting("vortarismodloader/show_error_dialogs", false)
+
+	# Final F2 cleanup (the manifestless pck file was kept readable above).
+	_rmtree("user://vml/f2_pck_root")
+
 	quit(1 if failed else 0)

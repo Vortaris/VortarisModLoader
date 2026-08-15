@@ -272,6 +272,9 @@ public:
 	/// each prefixed "[vortarismodloader][dbg] ".
 	PackedStringArray get_debug_log() const;
 	void clear_debug_log();
+	/// One-time migration hint for 0.2.x zip mods left in user://vml/mods after the
+	/// 0.3.0 default mod_paths change ("" when nothing was found / already shown).
+	String get_legacy_mod_migration_notice() const;
 
 	// signals
 	static void _static_bind_signals();
@@ -332,8 +335,18 @@ private:
 	void _auto_finish_startup();
 	void log_verbose(const String &p_msg) const;
 	void log_debug(const String &p_msg) const;
-	/// First configured mod root that is writable (dev res://, user:// always).
+	/// First configured mod root that passes a writable probe (skips read-only
+	/// res:// in exports / under a mounted pack; custom absolute-path roots win too).
 	String install_root() const;
+	/// True when `p_root` accepts a write (create + remove a temp probe directory).
+	bool root_writable(const String &p_root) const;
+	/// True when applying `p_custom` to `p_topological` keeps every dependency
+	/// strictly before its dependent in the resulting full load order.
+	bool custom_order_valid(const std::vector<String> &p_custom,
+			const std::vector<String> &p_topological) const;
+	/// Detect legacy 0.2.x zip mods in user://vml/mods (not a configured root) and
+	/// print a one-time migration notice (see get_legacy_mod_migration_notice).
+	void check_legacy_mods_migration();
 	bool is_reserved(const vortarismodloader::ResourceId &p_id) const;
 	String data_type_for(const String &p_path) const;
 	/// Load the value for a provider: json/csv parse to data, everything else is a Resource.
@@ -403,6 +416,9 @@ private:
 	bool profile_loaded_ = false;
 	bool initialized_ = false;
 	std::vector<String> mounted_packs_; // pck paths already load_resource_pack'd
+	String last_error_dialog_summary_; // last error summary that popped a dialog (F8 debounce)
+	String legacy_migration_notice_; // one-time user://vml/mods migration hint (F5)
+	bool legacy_migration_notified_ = false; // shown this session (or root re-added)
 
 	static VMLModLoader *singleton;
 };

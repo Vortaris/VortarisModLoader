@@ -19,7 +19,7 @@ scons -j 8 platform=windows target=template_debug arch=x86_64 build_library=Fals
 # Functional smoke (expect "=== VortarisModLoader Demo OK ===", exit 0)
 godot --headless --path demo --quit
 
-# Regression suite (T0–T73, 242 assertions; exit 0 = all pass)
+# Regression suite (T0–T73 + F1–F8 review fixes, 290 assertions; exit 0 = all pass)
 godot --headless --path demo --script res://scripts/regression_test.gd
 
 # Headless CLI for AI/automation (see docs/AI_DEBUGGING.md)

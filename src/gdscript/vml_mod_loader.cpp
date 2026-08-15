@@ -91,6 +91,7 @@ void VMLModLoader::scan_base_layer() {
 
 void VMLModLoader::scan_mods() {
 	startup_validation_done_ = false; // mods_ is rebuilt; validation must re-run
+	check_legacy_mods_migration();
 	// 0) Mount *.pck packs so their content appears in the virtual res:// VFS
 	//    before discovery walks the configured mod roots.
 	mount_packs();
@@ -144,8 +145,10 @@ void VMLModLoader::scan_mods() {
 	// 2b) Manifestless pck mods: a mounted pack whose content lives under
 	//     mods/<mod_id>/ but ships no manifest still contributes its content with
 	//     the mod_id derived from the folder. (With-manifest packs are already
-	//     discovered normally above.)
-	if (!mounted_packs_.empty()) {
+	//     discovered normally above.) Honours the export policy: "none" loads
+	//     nothing and "external" skips the embedded res:// root, matching the
+	//     discovery loop.
+	if (!mounted_packs_.empty() && export_mode == "embedded") {
 		const String pck_mods_root = "res://mods";
 		Ref<DirAccess> dir = DirAccess::open(pck_mods_root);
 		if (dir.is_valid()) {
@@ -249,9 +252,21 @@ void VMLModLoader::mount_packs() {
 	if (Engine::get_singleton()->is_editor_hint()) {
 		return;
 	}
+	// The export policy applies here too: "none" loads nothing (skip mounting
+	// entirely) and "external" only mounts packs under non-embedded (user) roots —
+	// exactly the same gate as the discovery loop in scan_mods.
+	const String export_mode = ProjectSettings::get_singleton()->get_setting(
+			"vortarismodloader/export_mods", "embedded");
+	if (export_mode == "none") {
+		return;
+	}
 	const PackedStringArray roots = mod_roots();
 	for (int i = 0; i < roots.size(); i++) {
 		const String root = roots[i];
+		const bool is_user_root = !root.begins_with("res://");
+		if (export_mode == "external" && !is_user_root) {
+			continue; // external-only: skip embedded res:// roots
+		}
 		std::vector<String> pcks;
 		vortarismodloader::DiscoveryScanner::scan_pck_files(root, pcks);
 		for (const String &pck : pcks) {
@@ -291,10 +306,14 @@ String VMLModLoader::get_error_summary() const {
 void VMLModLoader::maybe_show_error_dialogs() {
 	const String summary = error_summary_text();
 	if (summary.is_empty()) {
+		last_error_dialog_summary_ = String(); // clean state — a later re-appearance pops again
 		return; // clean — nothing to print or pop up
 	}
 	print_line(String("VML: startup has mod errors:\n") + summary);
 	log_verbose("error summary printed to console");
+	if (Engine::get_singleton()->is_editor_hint()) {
+		return; // never pop a modal dialog from the editor
+	}
 	const bool show = ProjectSettings::get_singleton()->get_setting("vortarismodloader/show_error_dialogs", false);
 	if (!show) {
 		return;
@@ -306,6 +325,12 @@ void VMLModLoader::maybe_show_error_dialogs() {
 	if (tree == nullptr || tree->get_root() == nullptr) {
 		return;
 	}
+	// Debounce by content: finish_startup and every rescan call this, so without a
+	// guard repeated rescans would stack one modal per identical error summary.
+	if (summary == last_error_dialog_summary_) {
+		return;
+	}
+	last_error_dialog_summary_ = summary;
 	AcceptDialog *dlg = memnew(AcceptDialog);
 	dlg->set_title("VortarisModLoader - Mod Errors");
 	dlg->set_text(summary);
@@ -403,7 +428,7 @@ bool VMLModLoader::register_id(const String &p_id, const String &p_path) {
 		ERR_PRINT(String("VML: invalid id '") + p_id + String("'"));
 		return false;
 	}
-	registry_.add(rid, vortarismodloader::ProviderEntry{ "__explicit__", p_path, 0, true, Variant() });
+	registry_.add(rid, vortarismodloader::ProviderEntry{ "__explicit__", p_path, 0, true, Variant(), true });
 	explicit_paths_[{ rid.ns, rid.path }] = p_path;
 	refresh_database_entry(rid); // stale DB cache must follow the new route
 	return true;
@@ -417,7 +442,7 @@ bool VMLModLoader::register_id(const String &p_id, const Variant &p_value, int p
 	}
 	// Value provider: empty physical_path marks it; priority defaults to 0 so mod
 	// providers (priority > 0) override it, matching the registry layer.
-	registry_.add(rid, vortarismodloader::ProviderEntry{ "__explicit__", String(), p_priority, true, p_value });
+	registry_.add(rid, vortarismodloader::ProviderEntry{ "__explicit__", String(), p_priority, true, p_value, true });
 	refresh_database_entry(rid);
 	return true;
 }
@@ -573,7 +598,7 @@ bool VMLModLoader::set_data(const String &p_id, const Variant &p_value, bool p_p
 		// mod (priority > 0) still overrides it. The DB cache is refreshed to match
 		// the winning provider.
 		registry_map_[{ rid.ns, rid.path }] = RegistryEntry{ String(), String(), String(), true, p_value };
-		registry_.add(rid, vortarismodloader::ProviderEntry{ "__registry__", String(), 0, true, p_value });
+		registry_.add(rid, vortarismodloader::ProviderEntry{ "__registry__", String(), 0, true, p_value, true });
 		refresh_database_entry(rid);
 		const Error err = save_registry();
 		if (err != OK) {
@@ -667,34 +692,12 @@ bool VMLModLoader::set_mod_order(const PackedStringArray &p_order) {
 		}
 		order.push_back(p_order[i]);
 	}
-	// 2) Dependency edges must be respected (a dependency before its dependents).
-	for (int i = 0; i < (int)order.size(); i++) {
-		const ModRecord *rec = find_mod(order[i]);
-		if (rec == nullptr) {
-			continue;
-		}
-		for (const String &dep : rec->manifest.deps) {
-			String dep_id, op, want;
-			vortarismodloader::DependencyGraph::parse_dependency(dep, dep_id, op, want);
-			if (dep_id.is_empty()) {
-				continue;
-			}
-			int dep_pos = -1;
-			int self_pos = -1;
-			for (int j = 0; j < (int)order.size(); j++) {
-				if (order[j] == dep_id) {
-					dep_pos = j;
-				}
-				if (order[j] == order[i]) {
-					self_pos = j;
-				}
-			}
-			if (dep_pos >= 0 && self_pos >= 0 && self_pos < dep_pos) {
-				ERR_PRINT(String("VML: set_mod_order rejected — '") + order[i] +
-						String("' depends on '") + dep_id + String("' but loads before it"));
-				return false;
-			}
-		}
+	// 2) Dependency edges must be respected in the FINAL full load order. A partial
+	//    list would hoist every listed mod above its unlisted dependencies, so a
+	//    dep missing from the list is just as invalid as a dep listed too late.
+	if (!custom_order_valid(order, load_order_)) {
+		ERR_PRINT("VML: set_mod_order rejected — the requested order would violate a dependency edge");
+		return false;
 	}
 	// 3) Persist + apply without a full rescan (keeps hooks/mod_mains intact).
 	custom_load_order_ = order;
@@ -722,7 +725,7 @@ bool VMLModLoader::set_registry_entry(const String &p_id, const String &p_path, 
 	}
 	registry_map_[{ rid.ns, rid.path }] = RegistryEntry{ p_path, p_type, p_description, false, Variant(), p_placeholder };
 	// Base-layer explicit route: priority 0, so any mod provider (priority > 0) overrides it.
-	registry_.add(rid, vortarismodloader::ProviderEntry{ "__registry__", p_path, 0, true, Variant() });
+	registry_.add(rid, vortarismodloader::ProviderEntry{ "__registry__", p_path, 0, true, Variant(), true });
 	refresh_database_entry(rid); // stale DB cache must follow the new route
 	log_verbose(String("registry entry: ") + p_id + String(" -> ") + p_path);
 	return true;
@@ -741,7 +744,7 @@ bool VMLModLoader::set_placeholder(const String &p_id, const String &p_type, con
 		// Constant placeholder -> persisted value provider (empty path).
 		registry_map_[{ rid.ns, rid.path }] =
 				RegistryEntry{ String(), type, p_description, true, p_default, true };
-		registry_.add(rid, vortarismodloader::ProviderEntry{ "__registry__", String(), 0, true, p_default });
+		registry_.add(rid, vortarismodloader::ProviderEntry{ "__registry__", String(), 0, true, p_default, true });
 	} else {
 		// Resource placeholder -> path provider (must be a path string).
 		if (p_default.get_type() != Variant::STRING || String(p_default).is_empty()) {
@@ -752,7 +755,7 @@ bool VMLModLoader::set_placeholder(const String &p_id, const String &p_type, con
 		const String path = String(p_default);
 		registry_map_[{ rid.ns, rid.path }] =
 				RegistryEntry{ path, type, p_description, false, Variant(), true };
-		registry_.add(rid, vortarismodloader::ProviderEntry{ "__registry__", path, 0, true, Variant() });
+		registry_.add(rid, vortarismodloader::ProviderEntry{ "__registry__", path, 0, true, Variant(), true });
 	}
 	refresh_database_entry(rid); // stale DB cache must follow the new route
 	log_verbose(String("placeholder: ") + p_id + String(" (") + type + String(")"));
@@ -900,7 +903,7 @@ Error VMLModLoader::load_registry(const String &p_path) {
 							RegistryEntry{ String(), String(), String(), true, entry["value"],
 									entry.get("placeholder", false) };
 					registry_.add(rid,
-							vortarismodloader::ProviderEntry{ "__registry__", String(), 0, true, entry["value"] });
+							vortarismodloader::ProviderEntry{ "__registry__", String(), 0, true, entry["value"], true });
 					refresh_database_entry(rid);
 				}
 				continue;
@@ -928,7 +931,7 @@ bool VMLModLoader::reroute(const String &p_id, const String &p_path) {
 	if (!vortarismodloader::ResourceId::parse(p_id, rid)) {
 		return false;
 	}
-	registry_.add(rid, vortarismodloader::ProviderEntry{ "__reroute__", p_path, INT32_MAX, true, Variant() });
+	registry_.add(rid, vortarismodloader::ProviderEntry{ "__reroute__", p_path, INT32_MAX, true, Variant(), true });
 	if (std::find(rerouted_ids_.begin(), rerouted_ids_.end(), rid) == rerouted_ids_.end()) {
 		rerouted_ids_.push_back(rid);
 	}
@@ -1622,11 +1625,21 @@ void VMLModLoader::load_custom_order() {
 		return;
 	}
 	const Array a = parsed;
+	std::vector<String> loaded;
 	for (int i = 0; i < a.size(); i++) {
 		if (a[i].get_type() == Variant::STRING) {
-			custom_load_order_.push_back(String(a[i]));
+			loaded.push_back(String(a[i]));
 		}
 	}
+	// A persisted order must satisfy the same dependency check as set_mod_order:
+	// 0.3.0's set_mod_order accepted partial lists that hoisted a mod above its own
+	// unlisted dependency, and those bad files would be re-applied on every boot.
+	// Reject them here and fall back to the default (topological) order.
+	if (!loaded.empty() && !custom_order_valid(loaded, load_order_)) {
+		ERR_PRINT(String("VML: ignoring persisted load_order.json — it violates dependency order"));
+		return; // custom_load_order_ stays empty -> default topological order
+	}
+	custom_load_order_ = std::move(loaded);
 }
 
 void VMLModLoader::save_custom_order() {
@@ -1641,6 +1654,47 @@ void VMLModLoader::save_custom_order() {
 	}
 	f->store_string(JSON::stringify(a));
 	f->close();
+}
+
+bool VMLModLoader::custom_order_valid(const std::vector<String> &p_custom,
+		const std::vector<String> &p_topological) const {
+	// Build the effective order p_custom would produce when applied to the
+	// topological baseline: every listed (known) mod first, in list order, then the
+	// remainder in topological order — mirroring reorder_load_order().
+	std::vector<String> effective;
+	for (const String &wanted : p_custom) {
+		if (std::find(p_topological.begin(), p_topological.end(), wanted) != p_topological.end() &&
+				std::find(effective.begin(), effective.end(), wanted) == effective.end()) {
+			effective.push_back(wanted);
+		}
+	}
+	for (const String &id : p_topological) {
+		if (std::find(effective.begin(), effective.end(), id) == effective.end()) {
+			effective.push_back(id);
+		}
+	}
+	// Every dependency must load strictly before its dependent in the final order.
+	for (int i = 0; i < (int)effective.size(); i++) {
+		const ModRecord *rec = find_mod(effective[i]);
+		if (rec == nullptr) {
+			continue;
+		}
+		for (const String &dep : rec->manifest.deps) {
+			String dep_id, op, want;
+			vortarismodloader::DependencyGraph::parse_dependency(dep, dep_id, op, want);
+			if (dep_id.is_empty()) {
+				continue;
+			}
+			const auto dep_it = std::find(effective.begin(), effective.end(), dep_id);
+			if (dep_it == effective.end()) {
+				continue; // dep is not loaded at all (disabled/invalid) — nothing to order
+			}
+			if (dep_it - effective.begin() >= i) {
+				return false; // dependency is not strictly before its dependent
+			}
+		}
+	}
+	return true;
 }
 
 void VMLModLoader::reorder_load_order() {
@@ -1995,6 +2049,61 @@ bool VMLModLoader::set_export_policy(const String &p_mode, bool p_scan_user) {
 	return true;
 }
 
+void VMLModLoader::check_legacy_mods_migration() {
+	// 0.3.0 dropped user://vml/mods from the default mod_paths (distribution uses
+	// .pck packs, dev uses folders). A user upgrading from 0.2.x still has zip-
+	// installed mods sitting in user://vml/mods that are no longer auto-discovered.
+	// Detect that once and print a migration hint instead of silently losing mods.
+	legacy_migration_notice_ = String();
+	if (legacy_migration_notified_) {
+		return; // already shown this session
+	}
+	const PackedStringArray roots = mod_roots();
+	if (roots.has("user://vml/mods")) {
+		legacy_migration_notified_ = true; // user already opted back in — nothing to say
+		return;
+	}
+	if (!DirAccess::dir_exists_absolute("user://vml/mods")) {
+		return;
+	}
+	bool found_legacy = false;
+	Ref<DirAccess> dir = DirAccess::open("user://vml/mods");
+	if (dir.is_valid()) {
+		dir->list_dir_begin();
+		String e;
+		while ((e = dir->get_next()) != String()) {
+			if (e == "." || e == ".." || !dir->current_is_dir()) {
+				continue;
+			}
+			if (FileAccess::file_exists("user://vml/mods/" + e + "/manifest.json")) {
+				found_legacy = true;
+				break;
+			}
+		}
+		dir->list_dir_end();
+	}
+	if (!found_legacy) {
+		return;
+	}
+	legacy_migration_notified_ = true;
+	legacy_migration_notice_ =
+			"VML: migration notice — user://vml/mods is no longer a default mod root (0.3.0). "
+			"Legacy zip-installed mods there are not auto-loaded. Move them into a configured "
+			"root (e.g. res://mods) or call VML.add_mod_root(\"user://vml/mods\").";
+	print_line(legacy_migration_notice_);
+	// One-time across restarts: write a marker so later boots stay quiet.
+	DirAccess::make_dir_recursive_absolute("user://vml");
+	Ref<FileAccess> f = FileAccess::open("user://vml/.legacy_mods_migration_notified", FileAccess::WRITE);
+	if (f.is_valid()) {
+		f->store_string("1");
+		f->close();
+	}
+}
+
+String VMLModLoader::get_legacy_mod_migration_notice() const {
+	return legacy_migration_notice_;
+}
+
 PackedStringArray VMLModLoader::mod_roots() const {
 	// 0.3.0: default roots are the dev folders (res://mods for pack-mounted /
 	// zip-installed mods, res://mods-unpacked for source folders). user://vml/mods
@@ -2019,21 +2128,41 @@ PackedStringArray VMLModLoader::mod_roots() const {
 }
 
 String VMLModLoader::install_root() const {
-	// The first configured root that is writable. In dev res:// roots are
-	// writable; user:// roots always are. Falls back to the first root / the
-	// default so zip install stays a working dev convenience (distribution uses
-	// .pck packs, which need no extraction).
 	const PackedStringArray roots = mod_roots();
+	// Prefer a writable root. res:// roots are read-only in exported builds (and
+	// while a pack is mounted), so a plain prefix check is wrong there — the probe
+	// below picks the first root that actually accepts a write. Custom absolute
+	// path roots (e.g. "C:/mods") are eligible too.
 	for (int i = 0; i < roots.size(); i++) {
-		const String r = roots[i];
-		if (r.begins_with("user://") || r.begins_with("res://")) {
-			return r;
+		if (root_writable(roots[i])) {
+			return roots[i];
 		}
 	}
-	if (roots.size() > 0) {
-		return roots[0];
+	// Nothing configured is writable: prefer a user:// root (user storage is always
+	// writable) so zip install still works in an export; fall back to the default.
+	for (int i = 0; i < roots.size(); i++) {
+		if (roots[i].begins_with("user://")) {
+			return roots[i];
+		}
 	}
-	return "res://mods";
+	return "user://vml/mods";
+}
+
+bool VMLModLoader::root_writable(const String &p_root) const {
+	if (!DirAccess::dir_exists_absolute(p_root)) {
+		// Root not present yet: writable iff we can create it (e.g. a fresh
+		// user://vml/... target).
+		return DirAccess::make_dir_recursive_absolute(p_root) == OK;
+	}
+	// Probe with a temporary directory so read-only mounts (res:// in an export or
+	// while a pack is mounted) are rejected.
+	const String probe = p_root + String("/.vml_write_probe");
+	DirAccess::make_dir_recursive_absolute(probe);
+	const bool ok = DirAccess::dir_exists_absolute(probe);
+	if (ok) {
+		DirAccess::remove_absolute(probe);
+	}
+	return ok;
 }
 
 PackedStringArray VMLModLoader::get_mod_roots() const {
@@ -2626,6 +2755,7 @@ void VMLModLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_error_summary"), &VMLModLoader::get_error_summary);
 	ClassDB::bind_method(D_METHOD("get_debug_log"), &VMLModLoader::get_debug_log);
 	ClassDB::bind_method(D_METHOD("clear_debug_log"), &VMLModLoader::clear_debug_log);
+	ClassDB::bind_method(D_METHOD("get_legacy_mod_migration_notice"), &VMLModLoader::get_legacy_mod_migration_notice);
 
 	ClassDB::bind_method(D_METHOD("instantiate", "id"), &VMLModLoader::instantiate);
 	ClassDB::bind_method(D_METHOD("reload_resources", "paths"), &VMLModLoader::reload_resources);

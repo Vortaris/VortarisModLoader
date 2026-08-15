@@ -29,7 +29,12 @@ static void register_vml_project_settings() {
 		{ "vortarismodloader/debug_output", "advanced [vortarismodloader][dbg] debug logging (scan, registry, hooks, data, packs)", "false" },
 	};
 	for (const auto &s : settings) {
-		ps->set_setting(StringName(s[0]), s[2][0] == 't' ? Variant(true) : Variant(false));
+		// Only write the default when the setting is absent. Writing unconditionally
+		// reset a user's project.godot value (e.g. show_error_dialogs=true) back to
+		// the default on every startup.
+		if (!ps->has_setting(StringName(s[0]))) {
+			ps->set_setting(StringName(s[0]), s[2][0] == 't' ? Variant(true) : Variant(false));
+		}
 		Dictionary pi;
 		pi["name"] = StringName(s[0]);
 		pi["type"] = Variant::BOOL;

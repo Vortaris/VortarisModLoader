@@ -13,24 +13,41 @@ static bool provider_higher(const ProviderEntry &a, const ProviderEntry &b) {
 	if (a.explicit_ != b.explicit_) {
 		return a.explicit_;
 	}
-	return a.mod_id < b.mod_id;
+	if (a.mod_id != b.mod_id) {
+		return a.mod_id < b.mod_id;
+	}
+	// Deterministic final tiebreak: a later-inserted provider wins. Guarantees a
+	// strict total order even when a mod maps several files to one id (id_overrides)
+	// or the base layer resolves one id from several files, so the result of
+	// std::sort is never an unspecified permutation of equal elements.
+	return a.seq > b.seq;
 }
 
-void RegistryIndex::Entry::insert_sorted(const ProviderEntry &p_e) {
-	// Replace-in-place when the same mod already provides this id from the same
-	// physical file (re-registration). A mod may legitimately map several files
-	// to one id via manifest id_overrides — those stack as distinct providers so
-	// arbitration still resolves them (equal priority/explicit/mod_id keeps the
-	// higher-priority-over-equal rule, then provider order is deterministic only
-	// by count; see providers_for).
-	for (auto it = providers.begin(); it != providers.end(); ++it) {
-		if (it->mod_id == p_e.mod_id && it->physical_path == p_e.physical_path) {
-			*it = p_e;
-			providers.erase(it);
-			break;
+void RegistryIndex::Entry::insert_sorted(const ProviderEntry &p_e, uint64_t &p_seq_counter) {
+	if (p_e.singleton) {
+		// Singleton markers (registry/reroute/explicit): re-registration must take
+		// effect immediately. Drop every prior provider from the same marker mod
+		// before adding the new one, so edits/reroutes/placeholders/removals never
+		// leave a stale provider shadowing the new entry.
+		providers.erase(std::remove_if(providers.begin(), providers.end(),
+								[&](const ProviderEntry &p) { return p.mod_id == p_e.mod_id; }),
+				providers.end());
+	} else {
+		// Replace-in-place when the same mod already provides this id from the same
+		// physical file (re-registration). A mod may legitimately map several files
+		// to one id via manifest id_overrides — those stack as distinct providers so
+		// arbitration still resolves them (equal priority/explicit/mod_id is broken
+		// deterministically by insertion order, see provider_higher).
+		for (auto it = providers.begin(); it != providers.end(); ++it) {
+			if (it->mod_id == p_e.mod_id && it->physical_path == p_e.physical_path) {
+				*it = p_e;
+				providers.erase(it);
+				break;
+			}
 		}
 	}
 	providers.push_back(p_e);
+	providers.back().seq = ++p_seq_counter;
 	std::sort(providers.begin(), providers.end(), provider_higher);
 }
 
@@ -40,7 +57,7 @@ const ProviderEntry *RegistryIndex::Entry::best() const {
 
 bool RegistryIndex::add(const ResourceId &p_id, const ProviderEntry &p_entry) {
 	Entry &e = map_[ResourceIdKey{ p_id.ns, p_id.path }];
-	e.insert_sorted(p_entry);
+	e.insert_sorted(p_entry, next_seq_);
 	log_debug(godot::String("registry: add '") + p_id.canonical() + godot::String("' provider mod=") +
 			p_entry.mod_id + godot::String(" path=") + p_entry.physical_path +
 			godot::String(" pri=") + godot::String::num_int64(p_entry.priority) +
