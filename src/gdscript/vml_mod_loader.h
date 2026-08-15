@@ -324,6 +324,7 @@ private:
 			explicit_paths_;
 	std::vector<ModRecord> mods_;
 	std::vector<String> load_order_;
+	bool startup_validation_done_ = false; // re-run only after a mod re-scan
 	struct RegistryEntry {
 		String path;
 		String type;

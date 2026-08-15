@@ -86,6 +86,7 @@ void VMLModLoader::scan_base_layer() {
 }
 
 void VMLModLoader::scan_mods() {
+	startup_validation_done_ = false; // mods_ is rebuilt; validation must re-run
 	// 1) Discover from the configured mod roots (default res://mods-unpacked and
 	//    user://vml/mods), honoring the export policy and the user-mod scan switch.
 	std::vector<vortarismodloader::DiscoveredMod> discovered;
@@ -1796,6 +1797,12 @@ void VMLModLoader::rescan() {
 	scan_mods();
 	database_.clear();
 	preload_database();
+	// Re-validate after a re-scan so the error/warning summary stays accurate.
+	if (ProjectSettings::get_singleton()->get_setting("vortarismodloader/validate_on_startup", true) &&
+			!startup_validation_done_) {
+		run_startup_validation();
+		startup_validation_done_ = true;
+	}
 	// Re-instantiate mod_main for enabled mods (rescan destroyed them above);
 	// otherwise every mod silently becomes "enabled but not loaded".
 	for (ModRecord &rec : mods_) {
@@ -1901,8 +1908,10 @@ void VMLModLoader::finish_startup() {
 	load_registry("user://vml/registry.json");
 	// Startup validation: mark problems, never throw or refuse to load. Runs here
 	// (after the VML singleton is registered) so mod_main scripts parse cleanly.
-	if (ProjectSettings::get_singleton()->get_setting("vortarismodloader/validate_on_startup", true)) {
+	if (ProjectSettings::get_singleton()->get_setting("vortarismodloader/validate_on_startup", true) &&
+			!startup_validation_done_) {
 		run_startup_validation();
+		startup_validation_done_ = true;
 	}
 	// Instantiate mod_main in dependency order (a dependent may rely on hooks/data
 	// registered by its dependencies during _init).

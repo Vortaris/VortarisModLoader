@@ -1,0 +1,9 @@
+{
+	"name": "Incompat Mod",
+	"namespace": "incompat_mod",
+	"version_number": "1.0.0",
+	"description": "Fixture: depends on mylib but is incompatible with mymod — enabling must fail at runtime.",
+	"dependencies": ["mylib"],
+	"incompatibilities": ["mymod"],
+	"extra": { "godot": {} }
+}

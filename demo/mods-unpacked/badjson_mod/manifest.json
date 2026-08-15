@@ -1,0 +1,7 @@
+{
+	"name": "Bad JSON Mod",
+	"namespace": "badjson_mod",
+	"version_number": "1.0.0",
+	"description": "Fixture: contains an unparseable JSON data file for validation tests.",
+	"extra": { "godot": {} }
+}

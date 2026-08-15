@@ -99,7 +99,9 @@ func _initialize() -> void:
 
 	# --- M3: mod discovery / override / ordering ---
 	var load_order = VML.get_load_order()
-	if not VMLTestUtil.expect(Array(load_order) == ["mylib", "mymod"],
+	var mylib_idx := load_order.find("mylib")
+	var mymod_idx := load_order.find("mymod")
+	if not VMLTestUtil.expect(mylib_idx >= 0 and mymod_idx > mylib_idx,
 			"T4 dependency load order (mylib before mymod)"):
 		failed = true
 	if not VMLTestUtil.expect(load_order.has("cycle_a") == false,
@@ -107,6 +109,9 @@ func _initialize() -> void:
 		failed = true
 	if not VMLTestUtil.expect(load_order.has("BadMod") == false,
 			"T14 invalid manifest mod excluded"):
+		failed = true
+	if not VMLTestUtil.expect(load_order.has("incompat_mod") == false,
+			"T51 incompat mod excluded from load order"):
 		failed = true
 
 	# T5: mod overrides base, and the later-loaded mod wins.
@@ -602,6 +607,61 @@ func _initialize() -> void:
 	if not VMLTestUtil.expect_eq(VML.count_ids("game:units."), 2, "T50 count_ids prefix"):
 		failed = true
 	if not VMLTestUtil.expect(VML.count_ids() > 0, "T50 count_ids all > 0"):
+		failed = true
+
+	# --- 0.2.2: runtime dependency/incompat re-check ---
+	if not VMLTestUtil.expect(VML.get_mod_ids().has("incompat_mod"),
+			"T51 incompat_mod discovered"):
+		failed = true
+	if not VMLTestUtil.expect(not VML.is_mod_enabled("incompat_mod"), "T51 incompat_mod boot-disabled"):
+		failed = true
+	if not VMLTestUtil.expect(VML.get_mod_errors("incompat_mod").size() > 0,
+			"T51 incompat_mod boot error surfaced"):
+		failed = true
+	if not VMLTestUtil.expect(VML.enable_mod("incompat_mod") == false,
+			"T51 enable incompat_mod fails at runtime"):
+		failed = true
+	var inc_errs := VML.get_mod_errors("incompat_mod")
+	if not VMLTestUtil.expect(inc_errs.has("incompatible with enabled mod 'mymod'"),
+			"T51 incompat reason reported"):
+		failed = true
+
+	# --- 0.2.2: validate_mod on a mod with a bad JSON data file ---
+	var v52: Dictionary = VML.validate_mod("badjson_mod")
+	if not VMLTestUtil.expect(v52.get("valid") == false, "T52 badjson_mod validate invalid"):
+		failed = true
+	if not VMLTestUtil.expect((v52.get("errors") as Array).size() > 0,
+			"T52 badjson_mod validate errors"):
+		failed = true
+	if not VMLTestUtil.expect(int(v52.get("checked")) >= 1, "T52 badjson_mod data checked"):
+		failed = true
+	if not VMLTestUtil.expect((VML.get_mod_report("badjson_mod").get("errors") as Array).size() > 0,
+			"T52 get_mod_report includes badjson errors"):
+		failed = true
+
+	# --- 0.2.2: error/warning aggregation ---
+	var summary: Dictionary = VML.get_errors_summary()
+	if not VMLTestUtil.expect(summary.has("incompat_mod") and summary.has("badjson_mod")
+			and summary.has("cycle_a"),
+			"T53 get_errors_summary includes problem mods"):
+		failed = true
+	if not VMLTestUtil.expect(not summary.has("mylib"), "T53 mylib absent from summary"):
+		failed = true
+	if not VMLTestUtil.expect(not summary.has("mymod"), "T53 mymod absent from summary"):
+		failed = true
+	if not VMLTestUtil.expect(VML.get_mod_report("mylib").get("errors").is_empty(),
+			"T53 mylib report clean"):
+		failed = true
+
+	# --- 0.2.2: get_startup_report ---
+	var sr: Dictionary = VML.get_startup_report()
+	if not VMLTestUtil.expect((sr.get("broken_mods") as PackedStringArray).has("badjson_mod"),
+			"T54 startup report lists badjson_mod broken"):
+		failed = true
+	if not VMLTestUtil.expect((sr.get("broken_mods") as PackedStringArray).has("incompat_mod"),
+			"T54 startup report lists incompat_mod broken"):
+		failed = true
+	if not VMLTestUtil.expect((sr.get("errors") as Array).size() > 0, "T54 startup report errors"):
 		failed = true
 
 	quit(1 if failed else 0)

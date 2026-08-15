@@ -360,9 +360,35 @@
 		<method name="get_mod_errors" qualifiers="const">
 			<return type="PackedStringArray" />
 			<param index="0" name="mod_id" type="String" />
-			<description>Human-readable errors for a mod (missing deps, cycle, bad manifest).
+			<description>Human-readable errors for a mod (missing deps, cycle, bad manifest, validation failures). Note this stays errors-only — use [method get_mod_report] for warnings too.
 
-			 某个 mod 的可读错误（缺依赖、循环、坏 manifest）。</description>
+			 某个 mod 的可读错误（缺依赖、循环、坏 manifest、校验失败）。注意只含 errors——警告用 [method get_mod_report]。</description>
+		</method>
+		<method name="validate_mod" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="mod_id" type="String" />
+			<description>Validate a mod: manifest completeness, loadable main_script, parseable data JSON, and JSON `"id"` vs path-inferred id cross-check. Returns { valid, errors, warnings, checked }. Run automatically at startup when `vortarismodloader/validate_on_startup` is enabled.
+
+			 校验一个 mod：manifest 完整性、main_script 可加载、数据 JSON 可解析、JSON `"id"` 与路径推断 id 交叉核对。返回 { valid, errors, warnings, checked }。`vortarismodloader/validate_on_startup` 开启时启动自动运行。</description>
+		</method>
+		<method name="get_mod_report" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="mod_id" type="String" />
+			<description>A mod's stored problems as { errors: PackedStringArray, warnings: PackedStringArray }.
+
+			 某 mod 的已存问题 { errors: PackedStringArray, warnings: PackedStringArray }。</description>
+		</method>
+		<method name="get_errors_summary" qualifiers="const">
+			<return type="Dictionary" />
+			<description>Every problematic mod as { mod_id: { errors, warnings } } (mods with no problems are omitted).
+
+			 每个有问题 mod：{ mod_id: { errors, warnings } }（无问题的 mod 被省略）。</description>
+		</method>
+		<method name="get_startup_report" qualifiers="const">
+			<return type="Dictionary" />
+			<description>Startup aggregate: { broken_mods: PackedStringArray, errors: Array, warnings: Array }.
+
+			 启动聚合：{ broken_mods: PackedStringArray, errors: Array, warnings: Array }。</description>
 		</method>
 		<method name="get_mod_path" qualifiers="const">
 			<return type="String" />
