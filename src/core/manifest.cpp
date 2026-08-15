@@ -78,6 +78,25 @@ bool ManifestParser::load(const godot::String &p_json_path, ModManifest &p_out) 
 	if (godot_block.has("config_schema") && godot_block["config_schema"].get_type() == godot::Variant::DICTIONARY) {
 		p_out.config_schema = godot_block["config_schema"];
 	}
+	// id_overrides: { "<rel path from mod root>": "<full id>" }. The override id
+	// is validated now so a bad manifest surfaces its error at discovery time.
+	if (godot_block.has("id_overrides") && godot_block["id_overrides"].get_type() == godot::Variant::DICTIONARY) {
+		const godot::Dictionary ov = godot_block["id_overrides"];
+		for (const godot::Variant &k : ov.keys()) {
+			if (k.get_type() != godot::Variant::STRING || ov[k].get_type() != godot::Variant::STRING) {
+				p_out.errors.push_back("id_overrides entries must map strings to strings");
+				continue;
+			}
+			const godot::String rel = godot::String(k);
+			const godot::String full_id = godot::String(ov[k]);
+			ResourceId rid;
+			if (!ResourceId::parse(full_id, rid)) {
+				p_out.errors.push_back(godot::String("invalid id_override id '") + full_id + godot::String("'"));
+				continue;
+			}
+			p_out.id_overrides[rel] = full_id;
+		}
+	}
 
 	// Defaults. main_script stays empty unless explicitly declared — a pure-data
 	// mod without an entry point is valid and must not look "broken".

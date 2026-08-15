@@ -1,0 +1,8 @@
+{
+	"id": "game:elite.archer",
+	"name": "Elite Archer",
+	"health": 120,
+	"attack": 12,
+	"speed": 8,
+	"source": "archer_b.json"
+}

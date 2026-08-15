@@ -9,6 +9,8 @@
 #include <godot_cpp/classes/json.hpp>
 #include <godot_cpp/core/error_macros.hpp>
 
+#include "debug_log.h"
+
 namespace vortarismodloader {
 
 namespace {
@@ -71,10 +73,16 @@ godot::Variant LoaderBackend::load_data(const godot::String &p_path) {
 		if (parsed.get_type() == godot::Variant::NIL) {
 			ERR_PRINT(godot::String("VML: invalid JSON in ") + p_path);
 		}
+		log_debug(godot::String("loader: parse data '") + p_path + godot::String("' -> ") +
+				(parsed.get_type() == godot::Variant::DICTIONARY ? godot::String("Dictionary") :
+							godot::String("Array")));
 		return parsed;
 	}
 	if (ext == "csv") {
-		return parse_csv(text);
+		godot::Array rows = parse_csv(text);
+		log_debug(godot::String("loader: parse csv '") + p_path + godot::String("' rows=") +
+				godot::String::num_int64(rows.size()));
+		return rows;
 	}
 	// Fall through: non-data file.
 	return godot::Variant();
@@ -125,6 +133,8 @@ godot::Ref<godot::Resource> LoaderBackend::load_resource(const godot::String &p_
 	godot::Ref<godot::Resource> res = godot::ResourceLoader::get_singleton()->load(p_path, "", p_mode);
 	if (res.is_null()) {
 		ERR_PRINT(godot::String("VML: failed to load resource: ") + p_path);
+	} else {
+		log_debug(godot::String("loader: resource '") + p_path + godot::String("' -> ") + res->get_class());
 	}
 	return res;
 }

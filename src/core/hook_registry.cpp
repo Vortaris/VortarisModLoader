@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include "debug_log.h"
+
 namespace vortarismodloader {
 
 static bool handler_first(const HookHandler &a, const HookHandler &b) {
@@ -19,6 +21,8 @@ void HookRegistry::Entry::insert_sorted(const HookHandler &h) {
 void HookRegistry::add(const ResourceId &p_hook_id, const godot::Callable &p_callable,
 		const godot::String &p_mod_id, int p_priority) {
 	map_[ResourceIdKey{ p_hook_id.ns, p_hook_id.path }].insert_sorted(HookHandler{ p_callable, p_mod_id, p_priority });
+	log_debug(godot::String("hook: register '") + p_hook_id.canonical() + godot::String("' (mod=") +
+			p_mod_id + godot::String(", pri=") + godot::String::num_int64(p_priority) + godot::String(")"));
 }
 
 bool HookRegistry::remove(const ResourceId &p_hook_id, const godot::Callable &p_callable) {
@@ -36,21 +40,31 @@ bool HookRegistry::remove(const ResourceId &p_hook_id, const godot::Callable &p_
 	if (handlers.empty()) {
 		map_.erase(it);
 	}
+	if (removed) {
+		log_debug(godot::String("hook: unregister '") + p_hook_id.canonical() + godot::String("'"));
+	}
 	return removed;
 }
 
 void HookRegistry::remove_mod(const godot::String &p_mod_id) {
+	size_t removed_hooks = 0;
 	for (auto it = map_.begin(); it != map_.end();) {
 		auto &handlers = it->second.handlers;
 		const size_t before = handlers.size();
 		handlers.erase(std::remove_if(handlers.begin(), handlers.end(),
 								[&](const HookHandler &h) { return h.mod_id == p_mod_id; }),
 				handlers.end());
+		if (handlers.size() != before) {
+			removed_hooks++;
+		}
 		if (handlers.empty()) {
 			it = map_.erase(it);
 		} else {
 			++it;
 		}
+	}
+	if (removed_hooks > 0) {
+		log_debug(godot::String("hook: remove_mod '") + p_mod_id + godot::String("'"));
 	}
 }
 
@@ -70,6 +84,8 @@ godot::Variant HookRegistry::invoke(const ResourceId &p_hook_id, const godot::Ar
 	if (it == map_.end()) {
 		return p_default;
 	}
+	log_debug(godot::String("hook: invoke '") + p_hook_id.canonical() + godot::String("' handlers=") +
+			godot::String::num_int64((int64_t)it->second.handlers.size()));
 	godot::Variant current = p_default;
 	godot::Array call_args;
 	call_args.resize(p_args.size() + 1);
@@ -90,6 +106,8 @@ godot::Dictionary HookRegistry::invoke_ctx(const ResourceId &p_hook_id, const go
 	if (it == map_.end()) {
 		return p_ctx;
 	}
+	log_debug(godot::String("hook: invoke_ctx '") + p_hook_id.canonical() + godot::String("' handlers=") +
+			godot::String::num_int64((int64_t)it->second.handlers.size()));
 	godot::Dictionary ctx = p_ctx;
 	godot::Array call_args;
 	call_args.resize(p_args.size() + 1);
@@ -111,6 +129,8 @@ void HookRegistry::emit(const ResourceId &p_hook_id, const godot::Array &p_args)
 	if (it == map_.end()) {
 		return;
 	}
+	log_debug(godot::String("hook: emit '") + p_hook_id.canonical() + godot::String("' handlers=") +
+			godot::String::num_int64((int64_t)it->second.handlers.size()));
 	for (const HookHandler &h : it->second.handlers) {
 		h.callable.callv(p_args);
 	}
@@ -121,6 +141,8 @@ bool HookRegistry::check(const ResourceId &p_hook_id, const godot::Array &p_args
 	if (it == map_.end()) {
 		return true; // no handlers -> allow
 	}
+	log_debug(godot::String("hook: check '") + p_hook_id.canonical() + godot::String("' handlers=") +
+			godot::String::num_int64((int64_t)it->second.handlers.size()));
 	for (const HookHandler &h : it->second.handlers) {
 		const godot::Variant v = h.callable.callv(p_args);
 		if (v.get_type() != godot::Variant::BOOL || !v.operator bool()) {

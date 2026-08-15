@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include "debug_log.h"
+
 namespace vortarismodloader {
 
 static bool provider_higher(const ProviderEntry &a, const ProviderEntry &b) {
@@ -15,11 +17,15 @@ static bool provider_higher(const ProviderEntry &a, const ProviderEntry &b) {
 }
 
 void RegistryIndex::Entry::insert_sorted(const ProviderEntry &p_e) {
-	// Replace-in-place if the same mod already provides this id.
+	// Replace-in-place when the same mod already provides this id from the same
+	// physical file (re-registration). A mod may legitimately map several files
+	// to one id via manifest id_overrides — those stack as distinct providers so
+	// arbitration still resolves them (equal priority/explicit/mod_id keeps the
+	// higher-priority-over-equal rule, then provider order is deterministic only
+	// by count; see providers_for).
 	for (auto it = providers.begin(); it != providers.end(); ++it) {
-		if (it->mod_id == p_e.mod_id) {
+		if (it->mod_id == p_e.mod_id && it->physical_path == p_e.physical_path) {
 			*it = p_e;
-			// Keep the list sorted after the replace.
 			providers.erase(it);
 			break;
 		}
@@ -35,6 +41,10 @@ const ProviderEntry *RegistryIndex::Entry::best() const {
 bool RegistryIndex::add(const ResourceId &p_id, const ProviderEntry &p_entry) {
 	Entry &e = map_[ResourceIdKey{ p_id.ns, p_id.path }];
 	e.insert_sorted(p_entry);
+	log_debug(godot::String("registry: add '") + p_id.canonical() + godot::String("' provider mod=") +
+			p_entry.mod_id + godot::String(" path=") + p_entry.physical_path +
+			godot::String(" pri=") + godot::String::num_int64(p_entry.priority) +
+			godot::String(" explicit=") + godot::String(p_entry.explicit_ ? "true" : "false"));
 	return true;
 }
 
@@ -54,6 +64,9 @@ bool RegistryIndex::remove_mod(const godot::String &p_mod_id) {
 		} else {
 			++it;
 		}
+	}
+	if (removed_any) {
+		log_debug(godot::String("registry: remove_mod '") + p_mod_id + godot::String("'"));
 	}
 	return removed_any;
 }
@@ -108,6 +121,8 @@ void RegistryIndex::set_mod_priority(const godot::String &p_mod_id, int p_priori
 	for (auto &kv : map_) {
 		std::sort(kv.second.providers.begin(), kv.second.providers.end(), provider_higher);
 	}
+	log_debug(godot::String("registry: set_mod_priority '") + p_mod_id +
+			godot::String("' pri=") + godot::String::num_int64(p_priority));
 }
 
 bool RegistryIndex::has(const ResourceId &p_id) const {

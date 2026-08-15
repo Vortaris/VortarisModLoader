@@ -1,0 +1,14 @@
+{
+	"name": "Override Mod",
+	"namespace": "override_mod",
+	"version_number": "1.0.0",
+	"description": "Fixture for explicit id_overrides: maps two data files onto a single game-namespace id.",
+	"extra": {
+		"godot": {
+			"id_overrides": {
+				"data/override_mod/units/archer.json": "game:elite.archer",
+				"data/override_mod/units/archer_b.json": "game:elite.archer"
+			}
+		}
+	}
+}

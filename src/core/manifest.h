@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <vector>
 
 #include <godot_cpp/variant/dictionary.hpp>
@@ -29,6 +30,12 @@ struct ModManifest {
 
 	std::vector<godot::String> asset_dirs; // default { "assets" }
 	std::vector<godot::String> data_dirs; // default { "data" }
+
+	// extra.godot.id_overrides: relative path (from the mod root, e.g.
+	// "data/mymod/units/archer.json") -> full explicit id (e.g.
+	// "game:units.elite_archer"). An explicit override wins over path inference;
+	// several files may point at the same id (providers are arbitrated normally).
+	std::map<godot::String, godot::String> id_overrides;
 
 	std::vector<godot::String> errors;
 
