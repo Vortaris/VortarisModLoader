@@ -19,7 +19,7 @@ scons -j 8 platform=windows target=template_debug arch=x86_64 build_library=Fals
 # Functional smoke (expect "=== VortarisModLoader Demo OK ===", exit 0)
 godot --headless --path demo --quit
 
-# Regression suite (T0–T62, 196 assertions; exit 0 = all pass)
+# Regression suite (T0–T73, 242 assertions; exit 0 = all pass)
 godot --headless --path demo --script res://scripts/regression_test.gd
 
 # Headless CLI for AI/automation (see docs/AI_DEBUGGING.md)
@@ -102,11 +102,17 @@ Two layers, mirroring VortarisCSV/VortarisECS: pure C++ core (`src/core/`,
   override them. `finish_startup()` loads `res://registry.json` then
   `user://vml/registry.json`. `reroute` registers `__reroute__` at INT32_MAX and
   calls `refresh_database_entry` (erase + reload) so the DB cache follows.
-- **Editor plugin (0.2.0)**: two panels — right-dock `VML IDs` (id_editor_panel.gd,
-  next to the Inspector) edits the registry; left-bottom-dock `VML Mods`
-  (mod_manager_panel.gd, next to Import) manages mods. `build_node` instantiates
-  via ClassDB and `validate` scans DB values for dotted-id strings that resolve
-  to nothing.
+- **Editor plugin (0.2.0 → 0.3.0 B)**: `VML Mods` is a **main-screen workspace**
+  (the "VML" tab; `mods_main_screen.gd`, wired in `editor_plugin.gd` via
+  `_has_main_screen`/`_make_visible`/`_get_plugin_name`) — mod list with
+  drag-to-reorder priority (`VML.set_mod_order` → `user://vml/load_order.json`),
+  details/deps/errors/config, hooks, content browser, Install/Export/Uninstall.
+  The old left-bottom dock is gone; `mod_manager_panel.gd` wraps the same screen
+  (kept so the T29 instantiation test passes). Right-dock `VML IDs`
+  (`id_editor_panel.gd`, next to the Inspector) edits the registry + **ID
+  placeholders** (`VML.set_placeholder`/`get_placeholder_ids`). `build_node`
+  instantiates via ClassDB and `validate` scans DB values for dotted-id strings
+  that resolve to nothing.
 - **Cascade enable/disable (0.2.1)**: `activate_mod` recursively enables required
   deps; `deactivate_mod` recursively disables dependents. Guards: `activating`/
   `disabling` on ModRecord. Idempotent check is `enabled && content_scanned`

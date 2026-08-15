@@ -49,9 +49,14 @@ all data) and traditional games alike (texture/model/scene overrides).
   to `user://vml/configs/<mod_id>.json`.
 - **Data-driven scenes**: `build_node(id)` builds a Node tree from Dictionary data.
 - **Validation**: `validate()` scans all data and reports missing id references.
-- **EditorPlugin**: right-dock "VML IDs" panel (next to the Inspector) to edit the
-  registry visually + Tools > "VML Mods" for mod management (Mods/IDs/Hooks tabs,
-  resizable columns) + one-click mod skeleton wizard; every action logs to console.
+- **Editor main screen**: the "VML" tab (next to 2D/3D/Script/AssetLib) is a full
+  mod-management workspace — mod list with **drag-to-reorder priority**,
+  details (manifest / deps / errors / config form), hooks visualization, content
+  browser, Install Zip / Create Mod / Rescan / **Export ZIP** / Uninstall.
+- **ID placeholders**: declare an id + default value in the editor ("New
+  Placeholder"), it auto-registers at startup, and `load("vml://id")` resolves to
+  the default until a mod overrides it. The right-dock "VML IDs" panel edits the
+  persisted registry / placeholders (`res://vml/registry.json`, git-committable).
 - **Cross-platform**: Windows / Linux / macOS, GitHub Actions builds + tag release.
 
 ## Quick start
@@ -116,6 +121,31 @@ See [docs/mod_format.md](docs/mod_format.md).
   the first writable root (`res://mods` in dev).
 - **Enable/load state fix**: `is_mod_loaded()` reflects enable/disable
   immediately (pure-data mods included), no rescan required.
+
+### Stage B (editor GUI + ID placeholders)
+
+- **VML Mods main screen**: mod management moved from a dock to the central
+  workspace (the "VML" tab). Left mod list columns:
+  Mod / Namespace / Enabled / Loaded / Priority / Deps, with **drag-to-reorder
+  priority** persisted via `VML.set_mod_order()` to `user://vml/load_order.json`
+  (dependency order is enforced). Right side: manifest info, deps, errors/
+  warnings, config form, hooks visualization (`Hook / Mod / Priority /
+  Description`), content browser, and Enable/Disable, Export ZIP, Uninstall,
+  Install Zip buttons. The old left-bottom dock is removed (`mod_manager_panel.gd`
+  now just hosts the same screen).
+- **Resizable columns**: every Tree table (mod manager + ID editor) has
+  user-draggable column headers, sensible minimum widths and no content clipping.
+- **Create Mod dialog**: fixed compact size (`set_min_size` + `reset_size`), no
+  more auto-filling the screen.
+- **Export ZIP**: select a mod and export its root folder to a `.zip` you choose;
+  the result re-installs via `install_mod_from_zip`.
+- **ID placeholders**: `VML.set_placeholder(id, type, default, description)` +
+  `VML.get_placeholder_ids(type="")`. Resource types resolve through
+  `load("vml://id")` / `get_resource`; "data" stores a constant read via
+  `get_data`. Stored in the project registry (`res://vml/registry.json`), loaded
+  at `finish_startup`, overridden by any mod. The VML IDs panel has a
+  "New Placeholder" button + Placeholders tab. See
+  [docs/registry.md](docs/registry.md).
 
 ## Migrating from 0.2.1
 

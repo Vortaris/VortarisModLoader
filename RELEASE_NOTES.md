@@ -64,6 +64,69 @@ console, advanced debug output, pck distribution, and the enable/load state fix.
   debug output gate (T64), pck mount (T65), error summary (T66) and
   enable/load state (T67). Headless smoke stays green.
 
+### B1 — Resizable table columns (#2)
+
+- Every Tree table in `mod_manager_panel.gd` / `id_editor_panel.gd` now has
+  user-draggable column headers, sensible `set_column_custom_minimum_width`, and
+  `set_column_clip_content(false)` so long values are never cut off.
+
+### B2 — Hooks table columns (#7)
+
+- The hooks table is now `Hook / Mod / Priority / Description`. The **Mod**
+  column shows each handler's owning mod id from `list_hook_handlers()` (no more
+  `["chantmod"]` array literals); the **Description** column shows the declared
+  hook-point description from `list_hook_points()`. One row per handler.
+
+### B3 — Fixed Create-Mod dialog size (#8)
+
+- `mod_wizard.gd` sets a compact fixed size (`set_min_size(Vector2i(400, 200))` +
+  `reset_size()`) so it never auto-fills the screen on first open.
+
+### B4 — Export mod as ZIP (#9)
+
+- The mod manager (main screen) gains **Export ZIP**: pick a mod, choose a
+  destination with a save `FileDialog`, and its root folder is packed with
+  `ZIPPacker` (import metadata skipped). The result re-installs via
+  `install_mod_from_zip`.
+
+### B5 — VML Mods becomes an editor main screen (#10)
+
+- `VML Mods` moved from the left-bottom dock to the **central workspace** — the
+  "VML" tab next to 2D/3D/Script/AssetLib (`_has_main_screen` /
+  `_make_visible` / `_get_plugin_name` / `_get_plugin_icon` in
+  `editor_plugin.gd`).
+- Left: mod list (`Mod / Namespace / Enabled / Loaded / Priority / Deps`) with
+  **drag-to-reorder priority** (Tree `_get_drag_data`/`_can_drop_data`/
+  `_drop_data` → `VML.set_mod_order()`). Dependency order is enforced and the
+  order persists to `user://vml/load_order.json` across rescans/restarts.
+- Right: manifest info, dependencies, errors/warnings, config form, hooks
+  visualization, content browser, and Enable/Disable, Export ZIP, Uninstall,
+  Install Zip.
+- The old dock is removed; `mod_manager_panel.gd` now just hosts the same screen
+  (kept so the T29 instantiation test passes).
+- New API: `get_mod_priority`, `get_mod_order`, `set_mod_order`,
+  `get_mod_display_name`, `get_mod_description`.
+
+### B6 — ID placeholder system (#11)
+
+- New API: `VML.set_placeholder(id, type, default, description)` declares a
+  placeholder id with a default value — resource types resolve through
+  `load("vml://id")` / `get_resource`, "data" stores a constant read via
+  `get_data`. `VML.get_placeholder_ids(type="")` lists/filters them.
+- Placeholders are registry entries marked `placeholder: true` (base-layer,
+  priority 0, mods override them), saved to the project-level
+  `res://vml/registry.json` and auto-loaded at `finish_startup()`.
+- The `VML IDs` panel gains a **New Placeholder** button + **Placeholders** tab;
+  `Save`/`Reload` now target the project-level registry path.
+- `docs/registry.md` documents the workflow; README synced.
+
+### Tests, version & docs (Stage B)
+
+- Regression extended to **T73 (242 assertions)**: mod-order validation/
+  persistence (T68) and placeholders incl. `load("vml://…")` resolution and
+  save/load round-trip (T71–T73). Headless smoke and `--editor --import --quit`
+  stay green.
+
 ## 0.2.3
 
 Headless CLI debugging entry + AI debugging guide (aligned with VortarisCSV/ECS 0.2.1).

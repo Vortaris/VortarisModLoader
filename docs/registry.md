@@ -38,6 +38,40 @@ registry file under a `"value"` key, survives restarts, and is overridden by any
 mod (priority > 0) shipping the same id. Old registry files without a `"value"`
 key load unchanged (fully backward compatible).
 
+## Placeholder IDs
+
+A **placeholder id** is a developer-declared id with a **default value** — a
+"declare an id first, fill it later" mechanism. You create the id in the editor,
+it auto-registers on startup, and any resource reference can point at it:
+`load("vml://mygame:mainmenu.bg")` resolves to the placeholder default until a
+mod ships the same id and overrides it (placeholders are base-layer, priority 0).
+
+```gdscript
+# Resource placeholder: default is a path, resolved via get_resource / load().
+VML.set_placeholder("mygame:mainmenu.bg", "image", "res://assets/game/menus/bg.png", "menu background")
+var bg: Texture2D = load("vml://mygame:mainmenu.bg")     # the default until overridden
+
+# Data placeholder: default is a constant, read via get_data().
+VML.set_placeholder("mygame:start_health", "data", 100)
+var hp: int = VML.get_data("mygame:start_health")
+```
+
+- **Storage**: placeholders live in the same project registry
+  (`res://vml/registry.json` by default) and are saved with
+  [VML.save_registry()](VMLModLoader.xml#class-vmlmodloader-method-save_registry);
+  they are loaded automatically at `VML.finish_startup()` just like any registry
+  entry.
+- **Editor**: the **VML IDs** panel (right dock) has a **New Placeholder**
+  button and a **Placeholders** tab. Fill id + type (image/scene/audio/data/…)
+  + default value (a resource path, or a constant for data types) and press
+  Create — it writes into the project registry so it is git-committable.
+- **API**: `VML.set_placeholder(id, type, default, description="")` and
+  `VML.get_placeholder_ids(type="")` (list / filter by type). A placeholder is
+  also just a registry entry — `get_registry_entry(id)` returns
+  `{ path | value, type, description, placeholder: true }`.
+- **Mod overrides**: a mod shipping the same id (any priority > 0) beats the
+  placeholder default, exactly like any other registry entry.
+
 ## Editor: "VML IDs" panel
 
 Open the plugin and you'll find **VML IDs** in the **right dock, next to the
@@ -45,7 +79,11 @@ Inspector** (tab-switched). It lets you:
 
 - browse every registry entry (id / path / type / description), resizable columns;
 - **New** + fill id/path/type/desc → **Apply** to create or update an entry;
-- **Delete** a selected entry; **Save** persists to `user://vml/registry.json`;
+- **New Placeholder** + fill id/type/default (resource path or constant) → Create,
+  plus a **Placeholders** tab listing every declared placeholder
+  (id / type / default / description);
+- **Delete** a selected entry; **Save** persists to the project-level
+  `res://vml/registry.json` (git-committable, falls back to user:// when read-only);
 - **Reload** re-reads from disk.
 
 Because `finish_startup()` loads the registry, your saved routes are applied every

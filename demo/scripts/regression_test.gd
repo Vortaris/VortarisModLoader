@@ -1,5 +1,6 @@
 extends SceneTree
-## Headless regression suite (M2–M4: routing layer + override + content database).
+## Headless regression suite (M2–M4 + 0.2.x + 0.3.0 A/B: routing layer, override,
+## content database, hooks, lifecycle, registry, placeholders, mod order).
 ## Run: godot --headless --path demo --script res://scripts/regression_test.gd
 ## Exit code 0 = all tests pass.
 ##
@@ -89,6 +90,8 @@ func _initialize() -> void:
 		_rmtree(stale_wiz)
 	# Reset persisted enable-state from previous runs so the suite is repeatable.
 	DirAccess.remove_absolute("user://vml/profile.json")
+	# A user-defined mod order (drag-to-reorder, B5) would skew priority tests.
+	DirAccess.remove_absolute("user://vml/load_order.json")
 	VML.rescan()
 
 	# --- T0: singleton ---
@@ -974,6 +977,91 @@ func _initialize() -> void:
 		failed = true
 	if not VMLTestUtil.expect(VML.is_mod_loaded("mymod") and VML.is_mod_loaded("mylib"),
 			"T67 both re-enabled and loaded"):
+		failed = true
+
+	# --- 0.3.0 B5: user-defined mod order (main-screen drag-to-reorder) ---
+	# mylib is a required dep of mymod, so it must precede mymod in any valid order.
+	var lib_prio := VML.get_mod_priority("mylib")
+	var mod_prio := VML.get_mod_priority("mymod")
+	if not VMLTestUtil.expect(lib_prio >= 0 and mod_prio > lib_prio,
+			"T68 load-order priorities (mylib before mymod)"):
+		failed = true
+	# Reordering a mod before its own dependency is rejected.
+	if not VMLTestUtil.expect(VML.set_mod_order(["mymod", "mylib"]) == false,
+			"T68 set_mod_order rejects dep-after-dependent"):
+		failed = true
+	if not VMLTestUtil.expect(VML.set_mod_order(["mylib", "mymod"]), "T68 set_mod_order valid order"):
+		failed = true
+	if not VMLTestUtil.expect(VML.get_mod_order().has("mylib") and VML.get_mod_order().has("mymod"),
+			"T68 get_mod_order returns persisted order"):
+		failed = true
+	VML.rescan() # the persisted order must survive a full re-discovery
+	if not VMLTestUtil.expect(VML.get_load_order().find("mylib") < VML.get_load_order().find("mymod"),
+			"T68 custom order re-applied across rescan"):
+		failed = true
+	# Reset so later runs (and the priority-sensitive T5/T67 checks) stay deterministic.
+	DirAccess.remove_absolute("user://vml/load_order.json")
+	VML.rescan()
+	if not VMLTestUtil.expect(VML.get_load_order().find("mylib") < VML.get_load_order().find("mymod"),
+			"T68 default order restored after clearing custom order"):
+		failed = true
+
+	# --- 0.3.0 B6: ID placeholder system ---
+	# Resource placeholder -> load("vml://...") / get_resource resolve the default.
+	var ph_img := "user://vml/ph_icon.png"
+	var ph_img_obj := Image.create(8, 8, false, Image.FORMAT_RGBA8)
+	ph_img_obj.fill(Color(0, 1, 0, 1))
+	ph_img_obj.save_png(ph_img)
+	if not VMLTestUtil.expect(VML.set_placeholder("mygame:ph.icon", "image", ph_img, "placeholder icon"),
+			"T71 set_placeholder image"):
+		failed = true
+	if not VMLTestUtil.expect(VML.get_resource("mygame:ph.icon") is ImageTexture,
+			"T71 placeholder get_resource -> ImageTexture"):
+		failed = true
+	if not VMLTestUtil.expect(load("vml://mygame:ph.icon") is ImageTexture,
+			"T71 load('vml://placeholder') resolves the default"):
+		failed = true
+	if not VMLTestUtil.expect(VML.has("mygame:ph.icon"), "T71 placeholder id visible"):
+		failed = true
+	# Data placeholder -> get_data returns the constant default.
+	if not VMLTestUtil.expect(VML.set_placeholder("mygame:ph.const", "data", {"k": 7}, "constant"),
+			"T71 set_placeholder data"):
+		failed = true
+	if not VMLTestUtil.expect_eq((VML.get_data("mygame:ph.const") as Dictionary).get("k"), 7,
+			"T71 placeholder data get_data returns constant"):
+		failed = true
+	# get_placeholder_ids + type filter.
+	var ph_ids: PackedStringArray = VML.get_placeholder_ids()
+	if not VMLTestUtil.expect(ph_ids.has("mygame:ph.icon") and ph_ids.has("mygame:ph.const"),
+			"T72 get_placeholder_ids lists placeholders"):
+		failed = true
+	if not VMLTestUtil.expect(VML.get_placeholder_ids("image").has("mygame:ph.icon"),
+			"T72 placeholder type filter image"):
+		failed = true
+	if not VMLTestUtil.expect(not VML.get_placeholder_ids("image").has("mygame:ph.const"),
+			"T72 placeholder type filter excludes data"):
+		failed = true
+	# Save / load round-trip preserves the placeholder flag and default.
+	if not VMLTestUtil.expect(VML.save_registry("user://vml/test_ph_registry.json") == OK,
+			"T73 placeholder save_registry"):
+		failed = true
+	if not VMLTestUtil.expect(VML.remove_registry_entry("mygame:ph.icon"), "T73 remove placeholder"):
+		failed = true
+	if not VMLTestUtil.expect(not VML.has("mygame:ph.icon"), "T73 placeholder removed"):
+		failed = true
+	if not VMLTestUtil.expect(VML.load_registry("user://vml/test_ph_registry.json") == OK,
+			"T73 placeholder load_registry"):
+		failed = true
+	if not VMLTestUtil.expect(VML.get_placeholder_ids().has("mygame:ph.icon"),
+			"T73 placeholder flag restored after load"):
+		failed = true
+	if not VMLTestUtil.expect(VML.has("mygame:ph.icon"), "T73 placeholder re-resolvable after load"):
+		failed = true
+	# Cleanup.
+	VML.remove_registry_entry("mygame:ph.icon")
+	VML.remove_registry_entry("mygame:ph.const")
+	DirAccess.remove_absolute("user://vml/test_ph_registry.json")
+	if not VMLTestUtil.expect(not VML.has("mygame:ph.const"), "T73 placeholder cleanup"):
 		failed = true
 
 	quit(1 if failed else 0)
