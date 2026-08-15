@@ -42,7 +42,8 @@ all data) and traditional games alike (texture/model/scene overrides).
 - **Id metadata & reservation**: `get_id_info` (full status), `get_id_data_type`,
   `set_id_type`/`list_ids_by_type` (filter by type), `reserve`/`unreserve`.
 - **Persisted content registry**: a saveable `id → resource` route table
-  (`user://vml/registry.json`, auto-loaded at `finish_startup`); a mod shipping
+  (`res://vml/registry.json`, auto-loaded at `finish_startup`, falls back to
+  `user://vml/registry.json` when res:// is read-only); a mod shipping
   the same id overrides it — `load("vml://main_menu_bg")` swaps the background.
 - **Runtime reroute**: `reroute`/`clear_reroute` hot-swap content at runtime.
 - **Per-mod config**: `config_schema` in the manifest, `get_config`/`set_config`

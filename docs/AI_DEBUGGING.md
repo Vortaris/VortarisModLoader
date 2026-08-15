@@ -1,12 +1,12 @@
 # VortarisModLoader — AI 调试指南 / AI Debugging Guide
 
-面向 **AI / 自动化 / CI** 的调试入口。编辑器面板（右 dock 的 "VML IDs"
-`id_editor_panel.gd`、左下方 dock 的 "VML Mods" `mod_manager_panel.gd`）是**给人看**
+面向 **AI / 自动化 / CI** 的调试入口。编辑器 GUI（右 dock 的 "VML IDs"
+`id_editor_panel.gd`、主屏 "VML Mods" `mods_main_screen.gd`）是**给人看**
 的交互工具；AI 请用下面的 **MCP `run_script` 直接调 API** 或 **headless CLI**。
 
-This document is aimed at **AI agents / automation / CI**. The editor docks
-(right-dock "VML IDs" `id_editor_panel.gd`, left-bottom "VML Mods"
-`mod_manager_panel.gd`) are **human** tools; AI should use the **MCP `run_script`
+This document is aimed at **AI agents / automation / CI**. The editor GUI
+(right-dock "VML IDs" `id_editor_panel.gd`, main-screen "VML Mods"
+`mods_main_screen.gd`) is a **human** tool; AI should use the **MCP `run_script`
 API snippets** or the **headless CLI** below.
 
 ---
