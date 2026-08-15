@@ -149,9 +149,18 @@ func _ready() -> void:
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	split.add_child(right)
 
+	# Right column: Details + Hooks/Content tabs live in a draggable VSplitContainer
+	# so the user can manually adjust how much height each section gets; the details
+	# panel is shrink-begin (and its error list is capped in a scroll) so it can
+	# never squeeze the tabs out of view.
+	var v_split := VSplitContainer.new()
+	v_split.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	right.add_child(v_split)
+
 	# Details header panel.
 	var detail_panel := PanelContainer.new()
-	right.add_child(detail_panel)
+	detail_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	v_split.add_child(detail_panel)
 	var detail_vbox := VBoxContainer.new()
 	detail_panel.add_child(detail_vbox)
 	detail_vbox.add_child(_section_title("Details"))
@@ -173,9 +182,17 @@ func _ready() -> void:
 	_detail_deps = Label.new()
 	_detail_deps.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	detail_vbox.add_child(_detail_deps)
+	# Error list is capped in a scroll container so many errors can never blow up
+	# the Details panel height (which would squeeze the Hooks/Content tabs out).
+	var errors_scroll := ScrollContainer.new()
+	errors_scroll.custom_minimum_size.y = 48
+	errors_scroll.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	errors_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	detail_vbox.add_child(errors_scroll)
 	_detail_errors = Label.new()
 	_detail_errors.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	detail_vbox.add_child(_detail_errors)
+	_detail_errors.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	errors_scroll.add_child(_detail_errors)
 
 	var actions := HBoxContainer.new()
 	detail_vbox.add_child(actions)
@@ -186,7 +203,7 @@ func _ready() -> void:
 
 	var tabs := TabContainer.new()
 	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	right.add_child(tabs)
+	v_split.add_child(tabs)
 
 	# Hooks tab. (The old Config *tab* was removed in 0.3.1 — configuration is
 	# edited through the modal "Config" dialog, `_build_config_dialog`, so a
@@ -231,6 +248,7 @@ func _ready() -> void:
 	vbox.add_child(_make_sep())
 	var status_bar := HBoxContainer.new()
 	status_bar.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	status_bar.custom_minimum_size.y = 24
 	vbox.add_child(status_bar)
 	_status = Label.new()
 	_status.clip_text = true
