@@ -120,6 +120,11 @@ const ProviderEntry *RegistryIndex::lookup(const ResourceId &p_id) const {
 	return it == map_.end() ? nullptr : it->second.best();
 }
 
+std::vector<ProviderEntry> RegistryIndex::providers_for(const ResourceId &p_id) const {
+	const auto it = map_.find(ResourceIdKey{ p_id.ns, p_id.path });
+	return it == map_.end() ? std::vector<ProviderEntry>() : it->second.providers;
+}
+
 godot::String RegistryIndex::resolve(const ResourceId &p_id) const {
 	const ProviderEntry *e = lookup(p_id);
 	return e ? e->physical_path : godot::String();

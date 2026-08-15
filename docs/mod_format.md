@@ -72,6 +72,24 @@ func _on_modify_damage(current: Variant, _amount: int, _weapon: String) -> Varia
 	return current * 2.0
 ```
 
+## id namespace source
+
+The id namespace comes from the **directory name**, never from the file or the
+mod id:
+
+```
+assets/<ns>/<path>.<ext>   -> id "ns:path"
+data/<ns>/<path>.<ext>     -> id "ns:path"
+```
+
+- A mod's own new content uses **its own namespace**: `data/mymod/units/archer.json`
+  → id `mymod:units.archer`.
+- To **override** original content, ship a file under the **original namespace**
+  at the **same relative path**: base has `data/game/units/knight.json` → id
+  `game:units.knight`; a mod shipping `data/game/units/knight.json` overrides it.
+- The same rule applies to overriding another mod's content: use that mod's
+  namespace and path.
+
 ## Overriding game content
 
 A mod overrides a base id by shipping a file at the **same** implicit path inside

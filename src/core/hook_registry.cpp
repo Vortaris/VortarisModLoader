@@ -84,6 +84,28 @@ godot::Variant HookRegistry::invoke(const ResourceId &p_hook_id, const godot::Ar
 	return current;
 }
 
+godot::Dictionary HookRegistry::invoke_ctx(const ResourceId &p_hook_id, const godot::Dictionary &p_ctx,
+		const godot::Array &p_args) {
+	const auto it = map_.find(ResourceIdKey{ p_hook_id.ns, p_hook_id.path });
+	if (it == map_.end()) {
+		return p_ctx;
+	}
+	godot::Dictionary ctx = p_ctx;
+	godot::Array call_args;
+	call_args.resize(p_args.size() + 1);
+	for (int i = 0; i < p_args.size(); i++) {
+		call_args[i + 1] = p_args[i];
+	}
+	for (const HookHandler &h : it->second.handlers) {
+		call_args[0] = ctx;
+		const godot::Variant result = h.callable.callv(call_args);
+		if (result.get_type() == godot::Variant::DICTIONARY) {
+			ctx = godot::Dictionary(result);
+		}
+	}
+	return ctx;
+}
+
 void HookRegistry::emit(const ResourceId &p_hook_id, const godot::Array &p_args) {
 	const auto it = map_.find(ResourceIdKey{ p_hook_id.ns, p_hook_id.path });
 	if (it == map_.end()) {

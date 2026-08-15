@@ -4,17 +4,20 @@
 #include <vector>
 
 #include <godot_cpp/variant/string.hpp>
+#include <godot_cpp/variant/variant.hpp>
 
 #include "resource_id.h"
 
 namespace vortarismodloader {
 
-// A provider is one source that maps an id to a concrete physical file.
+// A provider is one source that maps an id to a concrete physical file (or, for
+// a value provider, directly to a Variant value — see `physical_path` empty).
 struct ProviderEntry {
 	godot::String mod_id; // "base" or the mod's id
 	godot::String physical_path; // res:// or user:// path with extension
 	int priority = 0; // higher wins
 	bool explicit_ = false; // explicit register() outranks implicit at equal priority
+	godot::Variant value; // value provider: used when physical_path.is_empty()
 };
 
 // The heart of id-indexing: `id -> sorted provider list`. The best provider for
@@ -35,6 +38,9 @@ public:
 	bool has(const ResourceId &p_id) const;
 	/// Best provider or nullptr.
 	const ProviderEntry *lookup(const ResourceId &p_id) const;
+	/// All providers for an id, in provider_higher order (priority desc, explicit
+	/// desc, mod_id asc). Empty when the id is absent.
+	std::vector<ProviderEntry> providers_for(const ResourceId &p_id) const;
 	godot::String resolve(const ResourceId &p_id) const; // "" when absent
 	/// Sorted (deterministic) id listing.
 	std::vector<ResourceId> all_ids() const;

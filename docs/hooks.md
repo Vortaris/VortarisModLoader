@@ -34,9 +34,26 @@ func _on_modify_damage(current: Variant, _amount: int, _weapon: String) -> Varia
 VML.emit_hook("game:on_entity_killed", ["archer"])
 ```
 
+### invoke_ctx — context pipeline (mutate a Dictionary)
+
+The game passes a context Dictionary; handlers receive `(ctx, ...args)` and may
+return a modified Dictionary. The final ctx is returned to the caller.
+
+```gdscript
+# game side
+var ctx := VML.invoke_hook_ctx("game:on_hit", {"damage": 10.0, "element": "fire"}, [target])
+
+# mod side
+func _on_hit(ctx: Dictionary, _target: Node) -> Dictionary:
+	ctx["damage"] = ctx["damage"] * 2.0
+	return ctx
+```
+
 ### check — predicate (veto)
 
-Returns `true` when no handler vetoes; any handler returning `false` short-circuits.
+Returns **bool = whether to allow**: `true` when no handler vetoes; **any handler
+returning `false` short-circuits** and the whole check returns `false`. A handler
+that returns a non-bool is treated as a veto.
 
 ```gdscript
 if VML.check_hook("game:can_open_door", [door]):

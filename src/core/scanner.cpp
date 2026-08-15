@@ -43,7 +43,7 @@ void collect(const godot::String &p_abs_dir, const godot::String &p_rel_path,
 			ResourceId id;
 			id.ns = p_ns;
 			id.path = id_path;
-			p_idx.add(id, ProviderEntry{ p_mod_id, abs, p_priority, false });
+			p_idx.add(id, ProviderEntry{ p_mod_id, abs, p_priority, false, godot::Variant() });
 		}
 	}
 	dir->list_dir_end();

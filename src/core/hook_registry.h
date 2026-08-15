@@ -37,6 +37,10 @@ public:
 	int handler_count(const ResourceId &p_hook_id) const;
 
 	godot::Variant invoke(const ResourceId &p_hook_id, const godot::Array &p_args, const godot::Variant &p_default);
+	/// Context pipeline: each handler receives (ctx, ...args) and may return a
+	/// (possibly modified) Dictionary; the final ctx is returned to the caller.
+	godot::Dictionary invoke_ctx(const ResourceId &p_hook_id, const godot::Dictionary &p_ctx,
+			const godot::Array &p_args);
 	void emit(const ResourceId &p_hook_id, const godot::Array &p_args);
 	bool check(const ResourceId &p_hook_id, const godot::Array &p_args);
 

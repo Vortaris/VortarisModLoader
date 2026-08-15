@@ -46,13 +46,23 @@ public:
 
 	// --- registry / resource routing -----------------------------------
 	bool has(const String &p_id) const;
+	/// True when the id has a live entry in the in-memory content database.
+	bool has_data(const String &p_id) const;
 	String resolve(const String &p_id) const;
 	Variant get_data(const String &p_id) const;
 	Ref<Resource> get_resource(const String &p_id) const;
+	/// Explicit path registration (GDScript name: `register`).
 	bool register_id(const String &p_id, const String &p_path);
+	/// Value registration (GDScript name: `register_id`): stores a Variant
+	/// provider at priority `p_priority` (mod providers > 0 override it).
+	bool register_id(const String &p_id, const Variant &p_value, int p_priority = 0);
 	bool unregister_id(const String &p_id);
 	Dictionary list_ids(const String &p_prefix = "") const;
 	PackedStringArray list_namespaces() const;
+	/// Every full id in a namespace, sorted ("ns:path").
+	PackedStringArray list_ids_in_namespace(const String &p_ns) const;
+	/// Number of ids whose dotted canonical form begins with `prefix`.
+	int count_ids(const String &p_prefix = "") const;
 
 	// --- content database (unified load) -------------------------------
 	/// "data" (default) preloads data files; "all" preloads every id; "off" = lazy.
@@ -63,8 +73,12 @@ public:
 	/// Clear the repository and re-preload per the current mode.
 	void reload_database();
 	/// { canonical_id: value } for every loaded entry (optionally prefixed).
+	/// Union of registry ids and database ids; values resolved lazily via get_data.
 	Dictionary get_all(const String &p_prefix = "") const;
-	bool set_data(const String &p_id, const Variant &p_value);
+	/// Overwrite a database entry in place. `persist=true` additionally stores the
+	/// value as a `__registry__` value provider (priority 0) and saves the registry
+	/// so it survives restarts (see vortarismodloader/registry_path).
+	bool set_data(const String &p_id, const Variant &p_value, bool p_persist = false);
 	bool delete_data(const String &p_id);
 	String get_database_mode() const;
 	bool set_database_mode(const String &p_mode);
@@ -104,8 +118,11 @@ public:
 	Dictionary get_registry_entry(const String &p_id) const;
 	Dictionary get_registry() const;
 	bool remove_registry_entry(const String &p_id);
-	Error save_registry(const String &p_path = "user://vml/registry.json");
-	Error load_registry(const String &p_path = "user://vml/registry.json");
+	/// Persist the registry. Empty path (default) uses the configured project-level
+	/// path (vortarismodloader/registry_path, default res://vml/registry.json) and
+	/// falls back to user://vml/registry.json when res:// is read-only (exports).
+	Error save_registry(const String &p_path = "");
+	Error load_registry(const String &p_path = "");
 
 	// --- runtime reroute (0.2.0) ---------------------------------------
 	/// Temporarily force an id to a path at runtime (highest priority, not persisted).
@@ -131,6 +148,11 @@ public:
 	/// Instantiate every enabled mod's mod_main.gd (the game calls this from a
 	/// bootstrap autoload's _ready). mod_main must register hooks/config in _init.
 	void finish_startup();
+	/// Auto version of [method finish_startup]: call_deferred + retry until the
+	/// scene tree is ready, so autoload _ready has run before mod_mains instantiate.
+	void finish_startup_auto();
+	/// True once [method finish_startup]/[method finish_startup_auto] ran.
+	bool is_startup_done() const;
 
 	// --- M7: resources + dev hot reload --------------------------------
 	/// Instantiate a PackedScene by id (game:scenes/camp -> Node).
@@ -150,6 +172,10 @@ public:
 	void emit_hook(const String &p_hook_id, const Array &p_args = Array());
 	Variant invoke_hook(const String &p_hook_id, const Array &p_args = Array(),
 			const Variant &p_default = Variant());
+	/// Context hook: handlers receive (ctx, ...args) and may mutate/return the
+	/// context Dictionary; the final ctx is returned.
+	Dictionary invoke_hook_ctx(const String &p_hook_id, const Dictionary &p_ctx,
+			const Array &p_args = Array());
 	bool check_hook(const String &p_hook_id, const Array &p_args = Array());
 	/// Declare an available hook point (for docs/editor discovery).
 	bool register_hook_point(const String &p_hook_id, const String &p_description,
@@ -157,6 +183,10 @@ public:
 	/// { hook_id: { "count": int, "mods": PackedStringArray } }
 	Dictionary list_hooks(const String &p_prefix = "") const;
 	Dictionary list_hook_points(const String &p_prefix = "") const;
+	/// Handlers of a hook in call order as Array of { mod_id, priority }.
+	Array list_hook_handlers(const String &p_hook_id) const;
+	/// Every provider of an id: { providers: [{ mod_id, path, priority, explicit }], best: int }.
+	Dictionary list_providers(const String &p_id) const;
 
 	// --- mod management (M3: discovery + ordering) ---------------------
 	PackedStringArray get_mod_ids() const;
@@ -169,6 +199,17 @@ public:
 	/// Deps of `p_mod_id` as { dep_id: { exists, enabled } } (for enable-confirmation UI).
 	Dictionary get_mod_dependencies(const String &p_mod_id) const;
 
+	// --- mod health (0.2.2) --------------------------------------------
+	/// Validate a mod: manifest completeness, loadable main_script, parseable data
+	/// JSON, and id cross-check. Returns { valid, errors, warnings, checked }.
+	Dictionary validate_mod(const String &p_mod_id) const;
+	/// { errors: PackedStringArray, warnings: PackedStringArray } for a mod.
+	Dictionary get_mod_report(const String &p_mod_id) const;
+	/// { mod_id: { errors, warnings } } for mods that have any.
+	Dictionary get_errors_summary() const;
+	/// Startup aggregate: { broken_mods: PackedStringArray, errors, warnings }.
+	Dictionary get_startup_report() const;
+
 	// --- mod lifecycle (M6: runtime load/unload + zip install) ---------
 	/// Activate: stack content, instantiate mod_main, register hooks.
 	bool enable_mod(const String &p_mod_id);
@@ -176,10 +217,24 @@ public:
 	bool disable_mod(const String &p_mod_id);
 	bool load_mod(const String &p_mod_id);
 	bool unload_mod(const String &p_mod_id);
+	/// Hot reload one mod in place: drop hooks/content/database, re-scan, and
+	/// re-instantiate its mod_main (no duplicate hooks). Emits mod_reloaded.
+	bool reload_mod(const String &p_mod_id);
 	/// Transactionally extract a zip mod into user://vml/mods and activate it.
 	Error install_mod_from_zip(const String &p_zip_path);
 	/// Remove an installed (user://) mod entirely.
 	Error uninstall_mod(const String &p_mod_id);
+
+	// --- packaging / roots (0.2.2) -------------------------------------
+	/// { embedded, external, scan_user_mods } from project settings.
+	Dictionary get_mod_package_plan() const;
+	/// Set vortarismodloader/export_mods ("embedded"/"external"/"none") and
+	/// vortarismodloader/scan_user_mods, persisted to ProjectSettings.
+	bool set_export_policy(const String &p_mode, bool p_scan_user);
+	/// Configured mod root directories (vortarismodloader/mod_paths).
+	PackedStringArray get_mod_roots() const;
+	bool add_mod_root(const String &p_path);
+	bool remove_mod_root(const String &p_path);
 
 	// signals
 	static void _static_bind_signals();
@@ -205,6 +260,7 @@ private:
 		bool activating = false; // recursion guard for cascade-enable
 		bool disabling = false; // recursion guard for cascade-disable
 		std::vector<String> errors;
+		std::vector<String> warnings;
 	};
 
 	struct HookPoint {
@@ -218,11 +274,26 @@ private:
 	/// Overlay priority from the load order (base=0, first mod=1, ...). -1 if absent.
 	int mod_priority(const String &p_mod_id) const;
 	void _process_preload_batch();
+	void _auto_finish_startup();
 	void log_verbose(const String &p_msg) const;
 	bool is_reserved(const vortarismodloader::ResourceId &p_id) const;
 	String data_type_for(const String &p_path) const;
 	/// Load the value for a provider: json/csv parse to data, everything else is a Resource.
 	Variant load_entry_value(const vortarismodloader::ProviderEntry &p_e) const;
+	/// Value of a provider: the stored Variant for a value provider (empty path),
+	/// otherwise load_entry_value from the physical file.
+	Variant provider_value(const vortarismodloader::ProviderEntry &p_e) const;
+	/// Configured (or default) project-level registry path.
+	String registry_path() const;
+	/// Configured mod root directories (vortarismodloader/mod_paths).
+	PackedStringArray mod_roots() const;
+	/// Runtime dependency/incompatibility/version re-check before an enable.
+	bool runtime_deps_ok(ModRecord &p_rec, std::vector<String> &r_reason) const;
+	/// Whether a disabled mod could be cascade-enabled (its own deps enable-able,
+	/// no enabled incompatibility, cycle-guarded).
+	bool can_cascade(const String &p_id, std::vector<String> &p_visited) const;
+	/// Run validate_mod on every mod at boot when validate_on_startup is enabled.
+	void run_startup_validation();
 	/// Reload one id into the database cache (used after reroute/clear_reroute).
 	void refresh_database_entry(const vortarismodloader::ResourceId &p_id);
 	String owning_mod(const String &p_path) const;
@@ -257,6 +328,8 @@ private:
 		String path;
 		String type;
 		String description;
+		bool has_value = false; // value provider persisted from set_data(..., true)
+		Variant value;
 	};
 	std::vector<vortarismodloader::ResourceId> pending_ids_;
 	std::vector<vortarismodloader::ResourceId> reserved_ids_;

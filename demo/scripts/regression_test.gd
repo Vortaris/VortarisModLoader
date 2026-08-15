@@ -36,6 +36,11 @@ func _on_mod_loaded(mod_id: String) -> void:
 func _on_mod_unloaded(_mod_id: String) -> void:
 	_mod_unloaded = true
 
+
+func _on_ctx_hook(ctx: Dictionary, amount: int) -> Dictionary:
+	ctx["amount"] = ctx.get("amount", 0) + amount
+	return ctx
+
 func _initialize() -> void:
 	var failed := false
 	VML.mod_loaded.connect(_on_mod_loaded)
@@ -528,6 +533,75 @@ func _initialize() -> void:
 	VML.enable_mod("mylib")
 	if not VMLTestUtil.expect(VML.get_mod_errors("mylib").is_empty(),
 			"T45 pure-data mod has no errors"):
+		failed = true
+
+	# --- 0.2.2: has() unifies the DB; has_data() queries it ---
+	VML.set_data("game:units.peasant", {"name": "DB Peasant"})
+	if not VMLTestUtil.expect(VML.has("game:units.peasant"), "T46 has() true for DB entry"):
+		failed = true
+	if not VMLTestUtil.expect(VML.has_data("game:units.peasant"), "T46 has_data() true after set_data"):
+		failed = true
+	VML.delete_data("game:units.peasant")
+	if not VMLTestUtil.expect(not VML.has_data("game:units.peasant"), "T46 has_data() false after delete_data"):
+		failed = true
+	if not VMLTestUtil.expect(VML.has("game:units.peasant"), "T46 has() still true (file provider)"):
+		failed = true
+
+	# --- 0.2.2: register_id(id, value, priority) + unregister ---
+	if not VMLTestUtil.expect(VML.register_id("test:val", {"k": "v1"}, 0), "T47 register_id value"):
+		failed = true
+	if not VMLTestUtil.expect(VML.has("test:val"), "T47 value id visible"):
+		failed = true
+	var v47: Dictionary = VML.get_data("test:val")
+	if not VMLTestUtil.expect_eq(v47.get("k"), "v1", "T47 get_data returns value provider"):
+		failed = true
+	if not VMLTestUtil.expect_eq(VML.get_id_info("test:val").get("data_type"), "value",
+			"T47 value provider data_type"):
+		failed = true
+	# Higher priority overrides the lower one.
+	if not VMLTestUtil.expect(VML.register_id("test:val", {"k": "v2"}, 10), "T47 register_id priority"):
+		failed = true
+	var v47b: Dictionary = VML.get_data("test:val")
+	if not VMLTestUtil.expect_eq(v47b.get("k"), "v2", "T47 higher priority wins"):
+		failed = true
+	if not VMLTestUtil.expect(VML.unregister("test:val"), "T47 unregister value provider"):
+		failed = true
+	if not VMLTestUtil.expect(not VML.has("test:val"), "T47 value id gone after unregister"):
+		failed = true
+
+	# --- 0.2.2: invoke_hook_ctx mutates a context Dictionary ---
+	VML.add_hook("test:ctx", _on_ctx_hook, 0)
+	var ctx: Dictionary = VML.invoke_hook_ctx("test:ctx", {"amount": 1}, [10])
+	if not VMLTestUtil.expect_eq(ctx.get("amount"), 11, "T48 invoke_hook_ctx mutates ctx"):
+		failed = true
+	if not VMLTestUtil.expect(VML.remove_hook("test:ctx", _on_ctx_hook), "T48 remove ctx hook"):
+		failed = true
+
+	# --- 0.2.2: finish_startup_auto is idempotent ---
+	var before_count: int = 0
+	for mid in _mod_loaded_ids:
+		if mid == "mymod":
+			before_count += 1
+	VML.finish_startup_auto()
+	await process_frame
+	await process_frame
+	if not VMLTestUtil.expect(VML.is_startup_done(), "T49 is_startup_done true"):
+		failed = true
+	var after_count: int = 0
+	for mid in _mod_loaded_ids:
+		if mid == "mymod":
+			after_count += 1
+	if not VMLTestUtil.expect_eq(after_count, before_count, "T49 finish_startup_auto no double init"):
+		failed = true
+
+	# --- 0.2.2: list_ids_in_namespace / count_ids ---
+	var ns_ids := VML.list_ids_in_namespace("game")
+	if not VMLTestUtil.expect(ns_ids.has("game:units.knight") and ns_ids.has("game:units.peasant"),
+			"T50 list_ids_in_namespace game"):
+		failed = true
+	if not VMLTestUtil.expect_eq(VML.count_ids("game:units."), 2, "T50 count_ids prefix"):
+		failed = true
+	if not VMLTestUtil.expect(VML.count_ids() > 0, "T50 count_ids all > 0"):
 		failed = true
 
 	quit(1 if failed else 0)

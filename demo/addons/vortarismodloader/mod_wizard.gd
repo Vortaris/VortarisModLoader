@@ -81,9 +81,17 @@ func _on_confirmed() -> void:
 			}
 		},
 	}
+	# A sample data file so the new mod is immediately addressable by id. Its
+	# `"id"` matches the path-inferred id (data/<ns>/<file>.json -> <ns>:<file>).
+	var sample := {
+		"id": "%s:sample" % id,
+		"name": "Sample",
+		"description": "Example data file for the %s mod" % id,
+	}
 	if not _write(base + "/manifest.json", JSON.stringify(manifest, "  ")) \
 			or not _write(base + "/mod_main.gd",
-					"extends Node\n\nfunc _init() -> void:\n\t# Register hooks / config here (attributed to this mod automatically).\n\tpass\n"):
+					"extends Node\n\nfunc _init() -> void:\n\t# Register hooks / config here (attributed to this mod automatically).\n\tpass\n") \
+			or not _write(base + "/data/%s/sample.json" % id, JSON.stringify(sample, "  ")):
 		_error.text = "failed to write mod files (res:// read-only?)"
 		popup_centered(Vector2(380, 260))
 		return

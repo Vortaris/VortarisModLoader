@@ -38,9 +38,16 @@
 		<method name="has" qualifiers="const">
 			<return type="bool" />
 			<param index="0" name="id" type="String" />
-			<description>True if `id` resolves to any provider, or is reserved.
+			<description>True if `id` resolves to any provider, is reserved, or has a live entry in the content database (unified semantic: routing + reservation + database).
 
-			该 `id` 是否解析到某提供者，或被预留。</description>
+			该 `id` 是否解析到某提供者、被预留，或内容数据库中有实时的条目（统一语义：路由 + 预留 + 数据库）。</description>
+		</method>
+		<method name="has_data" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="id" type="String" />
+			<description>True when `id` has a live entry in the in-memory content database (set via [method set_data] or a preload).
+
+			内容数据库中有 `id` 的实时条目（经 [method set_data] 或预载写入）时为 true。</description>
 		</method>
 		<method name="exists" qualifiers="const">
 			<return type="bool" />
@@ -99,12 +106,21 @@
 
 			 显式把 `id` 映射到 `path`；同优先级下胜过隐式提供者。</description>
 		</method>
+		<method name="register_id">
+			<return type="bool" />
+			<param index="0" name="id" type="String" />
+			<param index="1" name="value" type="Variant" />
+			<param index="2" name="priority" type="int" default="0" />
+			<description>Register a direct Variant provider for `id` (no physical file). `priority` defaults to 0 so mod providers (priority &gt; 0) override it. Use [method unregister] to remove.
+
+			 为 `id` 注册一个直接的 Variant 提供者（无物理文件）。`priority` 默认 0，故 mod 提供者（优先级 &gt; 0）可覆盖它。用 [method unregister] 移除。</description>
+		</method>
 		<method name="unregister">
 			<return type="bool" />
 			<param index="0" name="id" type="String" />
-			<description>Remove an explicit registration.
+			<description>Remove an explicit registration (path- or value-based).
 
-			 移除一条显式注册。</description>
+			 移除一条显式注册（路径或值形式）。</description>
 		</method>
 		<method name="list_ids" qualifiers="const">
 			<return type="Dictionary" />
@@ -118,6 +134,20 @@
 			<description>Every content namespace currently indexed.
 
 			 当前索引的全部内容命名空间。</description>
+		</method>
+		<method name="list_ids_in_namespace" qualifiers="const">
+			<return type="PackedStringArray" />
+			<param index="0" name="ns" type="String" />
+			<description>Every full id (`ns:path`) in a namespace, sorted. Empty when the namespace is invalid or absent.
+
+			 某命名空间下的全部完整 id（`ns:path`），排序。命名空间无效或不存在时为空。</description>
+		</method>
+		<method name="count_ids" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="prefix" type="String" default="&quot;&quot;" />
+			<description>Number of ids whose dotted canonical form begins with `prefix` (all ids when empty).
+
+			 以点分隔规范形式 `prefix` 开头的 id 数量（空则全部）。</description>
 		</method>
 		<method name="get_id_info" qualifiers="const">
 			<return type="Dictionary" />
@@ -190,17 +220,18 @@
 		<method name="get_all" qualifiers="const">
 			<return type="Dictionary" />
 			<param index="0" name="prefix" type="String" default="&quot;&quot;" />
-			<description>Loaded database entries as { canonical_id: value }.
+			<description>The union of every registry id and every loaded database id, as { canonical_id: value }. Values are resolved lazily via [method get_data] (reserved-only ids without a provider carry no value and are skipped).
 
-			 已加载的数据库条目，格式 { canonical_id: value }。</description>
+			 所有注册表 id 与已加载数据库 id 的并集，格式 { canonical_id: value }。值经 [method get_data] 惰性解析（无提供者的仅预留 id 不含值、被跳过）。</description>
 		</method>
 		<method name="set_data">
 			<return type="bool" />
 			<param index="0" name="id" type="String" />
 			<param index="1" name="value" type="Variant" />
-			<description>Overwrite a database entry in place (emits [signal database_entry_changed]).
+			<param index="2" name="persist" type="bool" default="false" />
+			<description>Overwrite a database entry in place (emits [signal database_entry_changed]). When `persist` is true, the value is also stored as a project-level `__registry__` value provider (priority 0, so mods override it) and the registry is saved to [method save_registry].
 
-			 原地改写一条数据库条目（发射 [signal database_entry_changed]）。</description>
+			 原地改写一条数据库条目（发射 [signal database_entry_changed]）。`persist` 为 true 时，该值还会作为项目级 `__registry__` 值提供者（优先级 0，mod 可覆盖）存储，并保存注册表到 [method save_registry]。</description>
 		</method>
 		<method name="delete_data">
 			<return type="bool" />
@@ -228,6 +259,18 @@
 
 			 实例化所有已启用 mod 的 mod_main.gd。在 bootstrap autoload 的 _ready 调用一次。</description>
 		</method>
+		<method name="finish_startup_auto">
+			<return type="void" />
+			<description>Auto version of [method finish_startup]: call_deferred + retry until the scene tree is ready, so autoload `_ready` has run before mod_mains instantiate. Idempotent. Set `vortarismodloader/auto_finish_startup` to trigger it from the constructor instead of calling it yourself.
+
+			 [method finish_startup] 的自动版：call_deferred 并在场景树就绪前重试，确保 autoload `_ready` 已运行后才实例化 mod_main。幂等。设置 `vortarismodloader/auto_finish_startup` 可从构造函数自动触发，无需手动调用。</description>
+		</method>
+		<method name="is_startup_done" qualifiers="const">
+			<return type="bool" />
+			<description>True once [method finish_startup]/[method finish_startup_auto] has run.
+
+			 [method finish_startup]/[method finish_startup_auto] 运行过后为 true。</description>
+		</method>
 		<method name="add_hook">
 			<return type="bool" />
 			<param index="0" name="hook_id" type="String" />
@@ -253,6 +296,15 @@
 			<description>Pipeline: each handler receives (current, ...args) and returns the rewritten value; the last value is returned. Handlers run by priority.
 
 			 管线：每个处理器收到 (current, ...args) 并返回改写后的值；返回最后一个值。处理器按优先级执行。</description>
+		</method>
+		<method name="invoke_hook_ctx">
+			<return type="Dictionary" />
+			<param index="0" name="hook_id" type="String" />
+			<param index="1" name="ctx" type="Dictionary" />
+			<param index="2" name="args" type="Array" default="[]" />
+			<description>Context pipeline: each handler receives (ctx, ...args) and may return a (possibly modified) Dictionary; the final ctx is returned to the caller. Handler signature `func(ctx: Dictionary, ...args) -> Dictionary`.
+
+			 上下文管线：每个处理器收到 (ctx, ...args)，可返回（可能修改过的）Dictionary；最终 ctx 返回给调用方。处理器签名 `func(ctx: Dictionary, ...args) -> Dictionary`。</description>
 		</method>
 		<method name="emit_hook">
 			<return type="void" />
