@@ -65,7 +65,6 @@ var _mod_tree: _ModListTree
 var _hook_tree: Tree
 var _content_tree: Tree
 var _content_filter: LineEdit
-var _status: Label
 var _wizard: ConfirmationDialog
 var _selected_mod := ""
 
@@ -84,7 +83,6 @@ var _config_form: VBoxContainer
 var _config_text: TextEdit
 var _config_error: Label
 var _config_form_controls := {}
-var _status_pending := false
 
 # Dialogs.
 var _config_dlg: ConfirmationDialog
@@ -250,22 +248,6 @@ func _ready() -> void:
 	_build_config_dialog()
 	_build_confirm_dialog()
 
-	# Bottom status bar, visually separated from the content area. Anchored at the
-	# bottom of the screen: the bar takes only its minimum height (SIZE_SHRINK_BEGIN)
-	# so the content above fills normally, and the label is single-line + ellipsized
-	# so a long message can never stretch the row over the content (X2).
-	vbox.add_child(_make_sep())
-	var status_bar := HBoxContainer.new()
-	status_bar.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	status_bar.custom_minimum_size.y = 24
-	vbox.add_child(status_bar)
-	_status = Label.new()
-	_status.clip_text = true
-	_status.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	_status.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	status_bar.add_child(_status)
-
 	refresh()
 
 
@@ -313,7 +295,6 @@ func _section_title(text: String) -> Label:
 
 func refresh() -> void:
 	if not Engine.has_singleton("VML"):
-		_status.text = "VML engine singleton not loaded"
 		return
 	# Editor preview: run startup so mod_main scripts register their hooks in
 	# _init (the Hooks tab depends on them). Idempotent — a no-op once done.
@@ -323,25 +304,16 @@ func refresh() -> void:
 	_refresh_detail()
 	_refresh_hooks()
 	_refresh_content()
-	# Don't clobber the most recent operation result (M1): the default stats are
-	# only written when no operation has pinned a status message via _set_status.
-	if not _status_pending:
-		_show_stats()
 
 
-## Writes the default "N mods, db=..." line (shown on load and whenever the user
-## browses a different mod — i.e. no operation result is pending).
+## No-op status hooks (the bottom status bar was removed as a diagnostic — the
+## operation-result messages still flow through the code paths but go nowhere).
 func _show_stats() -> void:
-	if Engine.has_singleton("VML"):
-		_status.text = "%d mods, db=%s" % [VML.get_mod_ids().size(), VML.get_database_mode()]
+	pass
 
 
-## Records an operation result in the status bar and pins it so refresh() won't
-## overwrite it with the default mod/db stats. The message stays visible until the
-## next operation reports a new result, or the user selects a different mod (M1).
-func _set_status(text: String) -> void:
-	_status.text = text
-	_status_pending = true
+func _set_status(_text: String) -> void:
+	pass
 
 
 func _displayed_mod_ids() -> Array:
@@ -519,7 +491,6 @@ func _on_mod_selected() -> void:
 	if new_id == _selected_mod:
 		return # refresh()'s programmatic re-select keeps the pending status (M1)
 	_selected_mod = new_id
-	_status_pending = false
 	_refresh_detail()
 	_refresh_hooks()
 	_refresh_content()
