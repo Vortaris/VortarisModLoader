@@ -378,6 +378,12 @@
 
 			 某个 mod 的可读错误（缺依赖、循环、坏 manifest、校验失败）。注意只含 errors——警告用 [method get_mod_report]。</description>
 		</method>
+		<method name="get_mod_order" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>The persisted user-defined mod order (empty when unset). The editor's main-screen mod list drives drag-to-reorder with this via [method set_mod_order].
+
+			 已持久化的用户定义 mod 顺序（未设置时为空）。编辑器主屏 mod 列表用 [method set_mod_order] 驱动拖拽排序。</description>
+		</method>
 		<method name="validate_mod" qualifiers="const">
 			<return type="Dictionary" />
 			<param index="0" name="mod_id" type="String" />
@@ -411,6 +417,13 @@
 
 			 某个 mod 的根目录（未知则为 ""）。</description>
 		</method>
+		<method name="get_placeholder_ids" qualifiers="const">
+			<return type="PackedStringArray" />
+			<param index="0" name="type" type="String" default="&quot;&quot;" />
+			<description>Every developer-declared placeholder id (see [method set_placeholder]), optionally filtered by type ("" = all). Placeholders are saved to the project registry and loaded at [method finish_startup].
+
+			 全部开发者声明的占位符 id（见 [method set_placeholder]），可按类型过滤（"" 为全部）。占位符保存到项目注册表，在 [method finish_startup] 时加载。</description>
+		</method>
 		<method name="is_mod_enabled" qualifiers="const">
 			<return type="bool" />
 			<param index="0" name="mod_id" type="String" />
@@ -431,6 +444,20 @@
 			<description>Enabled mods that depend on `mod_id` (used by the editor's disable-confirmation UI). Disabling a mod cascade-disables its dependents.
 
 			 依赖 `mod_id` 的已启用 mod（编辑器禁用确认 UI 用）。禁用某 mod 会级联禁用其依赖者。</description>
+		</method>
+		<method name="get_mod_description" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="mod_id" type="String" />
+			<description>Manifest description of a mod ("" if unknown).
+
+			 某 mod 的 manifest 描述（未知则为 ""）。</description>
+		</method>
+		<method name="get_mod_display_name" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="mod_id" type="String" />
+			<description>Display name from the manifest ("" falls back to the mod id).
+
+			 manifest 中的显示名（"" 回退为 mod id）。</description>
 		</method>
 		<method name="enable_mod">
 			<return type="bool" />
@@ -486,6 +513,13 @@
 			<description>Export plan from project settings: { embedded: bool, external: bool, scan_user_mods: bool }.
 
 			 项目设置导出的打包计划：{ embedded: bool, external: bool, scan_user_mods: bool }。</description>
+		</method>
+		<method name="get_mod_priority" qualifiers="const">
+			<return type="int" />
+			<param index="0" name="mod_id" type="String" />
+			<description>Overlay priority of a mod from the load order (base=0, first mod=1, ...). -1 when the mod is not in the load order.
+
+			 某 mod 在加载顺序中的覆盖优先级（base=0，第一个 mod=1，……）。mod 不在加载顺序中时为 -1。</description>
 		</method>
 		<method name="set_export_policy">
 			<return type="bool" />
@@ -559,15 +593,33 @@
 
 			 完整重新发现并重建路由层 + 数据库。</description>
 		</method>
+		<method name="set_mod_order">
+			<return type="bool" />
+			<param index="0" name="order" type="PackedStringArray" />
+			<description>Reorder the mod load order (priority). `order` must contain known mod ids only and respect dependency edges (a dependency before its dependents). Persisted to `user://vml/load_order.json` and re-applied on every rescan/startup. Returns false on an unknown mod or a dependency-order violation.
+
+			 重排 mod 加载顺序（优先级）。`order` 必须只包含已知 mod id，并遵守依赖边（依赖在依赖者之前）。持久化到 `user://vml/load_order.json`，每次重扫/启动重新应用。未知 mod 或违反依赖顺序时返回 false。</description>
+		</method>
+		<method name="set_placeholder">
+			<return type="bool" />
+			<param index="0" name="id" type="String" />
+			<param index="1" name="type" type="String" />
+			<param index="2" name="default" type="Variant" />
+			<param index="3" name="description" type="String" default="&quot;&quot;" />
+			<description>Declare a placeholder id with a default value. For resource types ("image"/"scene"/"audio"/"font"/"script"/"resource") `default` is a resource path and the id resolves through [method get_resource] / `load("vml://id")`. For "data" (or any non-resource type) `default` is stored as a constant and read via [method get_data]. Placeholders are base-layer (priority 0) — mods override them like any registry entry. Persist with [method save_registry]; loaded automatically at [method finish_startup].
+
+			 声明一个带默认值的占位符 id。资源类型（"image"/"scene"/"audio"/"font"/"script"/"resource"）时 `default` 是资源路径，id 经 [method get_resource] / `load("vml://id")` 解析。数据（"data" 或任意非资源类型）时 `default` 存为常量，用 [method get_data] 读取。占位符为基础层（优先级 0）——mod 与普通注册表条目一样可覆盖。用 [method save_registry] 持久化；[method finish_startup] 自动加载。</description>
+		</method>
 		<method name="set_registry_entry">
 			<return type="bool" />
 			<param index="0" name="id" type="String" />
 			<param index="1" name="path" type="String" />
 			<param index="2" name="type" type="String" default="&quot;&quot;" />
 			<param index="3" name="description" type="String" default="&quot;&quot;" />
-			<description>Declare an id in the persisted content registry (base-layer route; mods override it). Save with [method save_registry]; loaded automatically at [method finish_startup].
+			<param index="4" name="placeholder" type="bool" default="false" />
+			<description>Declare an id in the persisted content registry (base-layer route; mods override it). `placeholder` marks the entry as a developer placeholder (listed by [method get_placeholder_ids]). Save with [method save_registry]; loaded automatically at [method finish_startup].
 
-			 在持久化内容注册表中声明一个 id（基础层路由；mod 可覆盖）。用 [method save_registry] 保存；[method finish_startup] 自动加载。</description>
+			 在持久化内容注册表中声明一个 id（基础层路由；mod 可覆盖）。`placeholder` 把条目标记为开发者占位符（由 [method get_placeholder_ids] 列出）。用 [method save_registry] 保存；[method finish_startup] 自动加载。</description>
 		</method>
 		<method name="get_registry_entry" qualifiers="const">
 			<return type="Dictionary" />

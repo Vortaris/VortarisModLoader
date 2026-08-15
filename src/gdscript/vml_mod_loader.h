@@ -112,12 +112,24 @@ public:
 
 	// --- persisted content registry (0.2.0) ----------------------------
 	/// Declare an id in the persisted content registry (base-layer explicit route;
-	/// mods override it). Saved with [method save_registry].
+	/// mods override it). Saved with [method save_registry]. `p_placeholder` marks
+	/// the entry as a developer placeholder (see [method get_placeholder_ids]).
 	bool set_registry_entry(const String &p_id, const String &p_path, const String &p_type = "",
-			const String &p_description = "");
+			const String &p_description = "", bool p_placeholder = false);
 	Dictionary get_registry_entry(const String &p_id) const;
 	Dictionary get_registry() const;
 	bool remove_registry_entry(const String &p_id);
+
+	// --- 0.3.0 B6: ID placeholders -------------------------------------
+	/// Declare a placeholder id with a default value. `p_type` selects the storage:
+	/// "data" (or any non-resource type) stores `p_default` as a constant value
+	/// provider; otherwise `p_default` is treated as a resource path and the id
+	/// resolves through [method get_resource]/`load("vml://id")`. Placeholders are
+	/// base-layer (priority 0) — mods override them like any registry entry.
+	bool set_placeholder(const String &p_id, const String &p_type, const Variant &p_default,
+			const String &p_description = "");
+	/// Every placeholder id, optionally filtered by type ("" = all).
+	PackedStringArray get_placeholder_ids(const String &p_type = "") const;
 	/// Persist the registry. Empty path (default) uses the configured project-level
 	/// path (vortarismodloader/registry_path, default res://vml/registry.json) and
 	/// falls back to user://vml/registry.json when res:// is read-only (exports).
@@ -194,6 +206,12 @@ public:
 	PackedStringArray get_mod_errors(const String &p_mod_id) const;
 	bool is_mod_enabled(const String &p_mod_id) const;
 	bool is_mod_loaded(const String &p_mod_id) const;
+	/// Display name from the manifest ("" falls back to the mod id).
+	String get_mod_display_name(const String &p_mod_id) const;
+	/// Manifest description of a mod ("" if unknown).
+	String get_mod_description(const String &p_mod_id) const;
+	/// Overlay priority from the load order (base=0, first mod=1, ...). -1 if absent.
+	int get_mod_priority(const String &p_mod_id) const;
 	/// Enabled mods that depend on `p_mod_id` (for disable-confirmation UI).
 	PackedStringArray get_mod_dependents(const String &p_mod_id) const;
 	/// Deps of `p_mod_id` as { dep_id: { exists, enabled } } (for enable-confirmation UI).
@@ -235,6 +253,15 @@ public:
 	PackedStringArray get_mod_roots() const;
 	bool add_mod_root(const String &p_path);
 	bool remove_mod_root(const String &p_path);
+
+	// --- 0.3.0 B5: user-defined mod order (priority) --------------------
+	/// The persisted user-defined load order (empty when unset). The UI drives
+	/// drag-to-reorder with this.
+	PackedStringArray get_mod_order() const;
+	/// Reorder the mod load order. `order` must contain known mod ids only and
+	/// respect dependency edges (a dependency before its dependents). Persisted to
+	/// user://vml/load_order.json and re-applied on every rescan/startup.
+	bool set_mod_order(const PackedStringArray &p_order);
 
 	// --- 0.3.0: error summary + debug log introspection -----------------
 	/// Human-readable startup error summary ("<mod>: <err>" lines, one per error).
@@ -292,6 +319,15 @@ private:
 	String error_summary_text() const;
 	/// Overlay priority from the load order (base=0, first mod=1, ...). -1 if absent.
 	int mod_priority(const String &p_mod_id) const;
+	/// Read user://vml/load_order.json into custom_load_order_ (empty when absent).
+	void load_custom_order();
+	/// Write custom_load_order_ to user://vml/load_order.json.
+	void save_custom_order();
+	/// Reorder load_order_ to follow custom_load_order_ where present (missing
+	/// entries stay in topological order). No-op when the custom order is empty.
+	void reorder_load_order();
+	/// Re-scan enabled mods so their overlay priorities follow the new load order.
+	void reapply_overlay_priorities();
 	void _process_preload_batch();
 	void _auto_finish_startup();
 	void log_verbose(const String &p_msg) const;
@@ -346,6 +382,7 @@ private:
 			explicit_paths_;
 	std::vector<ModRecord> mods_;
 	std::vector<String> load_order_;
+	std::vector<String> custom_load_order_; // persisted user priority (user://vml/load_order.json)
 	bool startup_validation_done_ = false; // re-run only after a mod re-scan
 	struct RegistryEntry {
 		String path;
@@ -353,6 +390,7 @@ private:
 		String description;
 		bool has_value = false; // value provider persisted from set_data(..., true)
 		Variant value;
+		bool placeholder = false; // developer placeholder (VML.set_placeholder)
 	};
 	std::vector<vortarismodloader::ResourceId> pending_ids_;
 	std::vector<vortarismodloader::ResourceId> reserved_ids_;

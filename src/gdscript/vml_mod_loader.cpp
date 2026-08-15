@@ -228,6 +228,10 @@ void VMLModLoader::scan_mods() {
 			rec->enabled = false;
 		}
 	}
+	// 5b) A persisted user-defined priority (set_mod_order) reorders the computed
+	//     load order — the UI's drag-to-reorder survives rescans/restarts.
+	load_custom_order();
+	reorder_load_order();
 
 	// 6) Stack enabled mods above base and scan their content.
 	for (const String &id : load_order_) {
@@ -628,6 +632,79 @@ String VMLModLoader::get_mod_version(const String &p_mod_id) const {
 	return rec != nullptr ? rec->manifest.version : String();
 }
 
+String VMLModLoader::get_mod_display_name(const String &p_mod_id) const {
+	const ModRecord *rec = find_mod(p_mod_id);
+	if (rec == nullptr) {
+		return String();
+	}
+	return rec->manifest.display_name.is_empty() ? rec->manifest.id : rec->manifest.display_name;
+}
+
+String VMLModLoader::get_mod_description(const String &p_mod_id) const {
+	const ModRecord *rec = find_mod(p_mod_id);
+	return rec != nullptr ? rec->manifest.description : String();
+}
+
+int VMLModLoader::get_mod_priority(const String &p_mod_id) const {
+	return mod_priority(p_mod_id);
+}
+
+PackedStringArray VMLModLoader::get_mod_order() const {
+	PackedStringArray out;
+	for (const String &id : custom_load_order_) {
+		out.push_back(id);
+	}
+	return out;
+}
+
+bool VMLModLoader::set_mod_order(const PackedStringArray &p_order) {
+	// 1) Validate: every id must be a known mod.
+	std::vector<String> order;
+	for (int i = 0; i < p_order.size(); i++) {
+		if (find_mod(p_order[i]) == nullptr) {
+			ERR_PRINT(String("VML: set_mod_order rejected unknown mod '") + p_order[i] + String("'"));
+			return false;
+		}
+		order.push_back(p_order[i]);
+	}
+	// 2) Dependency edges must be respected (a dependency before its dependents).
+	for (int i = 0; i < (int)order.size(); i++) {
+		const ModRecord *rec = find_mod(order[i]);
+		if (rec == nullptr) {
+			continue;
+		}
+		for (const String &dep : rec->manifest.deps) {
+			String dep_id, op, want;
+			vortarismodloader::DependencyGraph::parse_dependency(dep, dep_id, op, want);
+			if (dep_id.is_empty()) {
+				continue;
+			}
+			int dep_pos = -1;
+			int self_pos = -1;
+			for (int j = 0; j < (int)order.size(); j++) {
+				if (order[j] == dep_id) {
+					dep_pos = j;
+				}
+				if (order[j] == order[i]) {
+					self_pos = j;
+				}
+			}
+			if (dep_pos >= 0 && self_pos >= 0 && self_pos < dep_pos) {
+				ERR_PRINT(String("VML: set_mod_order rejected — '") + order[i] +
+						String("' depends on '") + dep_id + String("' but loads before it"));
+				return false;
+			}
+		}
+	}
+	// 3) Persist + apply without a full rescan (keeps hooks/mod_mains intact).
+	custom_load_order_ = order;
+	save_custom_order();
+	reorder_load_order();
+	reapply_overlay_priorities();
+	emit_signal("registry_rebuilt");
+	return true;
+}
+
 bool VMLModLoader::is_reserved(const vortarismodloader::ResourceId &p_id) const {
 	for (const vortarismodloader::ResourceId &r : reserved_ids_) {
 		if (r == p_id) {
@@ -638,17 +715,63 @@ bool VMLModLoader::is_reserved(const vortarismodloader::ResourceId &p_id) const 
 }
 
 bool VMLModLoader::set_registry_entry(const String &p_id, const String &p_path, const String &p_type,
-		const String &p_description) {
+		const String &p_description, bool p_placeholder) {
 	vortarismodloader::ResourceId rid;
 	if (!vortarismodloader::ResourceId::parse(p_id, rid) || p_path.is_empty()) {
 		return false;
 	}
-	registry_map_[{ rid.ns, rid.path }] = RegistryEntry{ p_path, p_type, p_description };
+	registry_map_[{ rid.ns, rid.path }] = RegistryEntry{ p_path, p_type, p_description, false, Variant(), p_placeholder };
 	// Base-layer explicit route: priority 0, so any mod provider (priority > 0) overrides it.
 	registry_.add(rid, vortarismodloader::ProviderEntry{ "__registry__", p_path, 0, true, Variant() });
 	refresh_database_entry(rid); // stale DB cache must follow the new route
 	log_verbose(String("registry entry: ") + p_id + String(" -> ") + p_path);
 	return true;
+}
+
+bool VMLModLoader::set_placeholder(const String &p_id, const String &p_type, const Variant &p_default,
+		const String &p_description) {
+	vortarismodloader::ResourceId rid;
+	if (!vortarismodloader::ResourceId::parse(p_id, rid)) {
+		ERR_PRINT(String("VML: set_placeholder invalid id '") + p_id + String("'"));
+		return false;
+	}
+	const String type = p_type.strip_edges().to_lower();
+	const bool is_data = type.is_empty() || type == "data" || type == "value";
+	if (is_data) {
+		// Constant placeholder -> persisted value provider (empty path).
+		registry_map_[{ rid.ns, rid.path }] =
+				RegistryEntry{ String(), type, p_description, true, p_default, true };
+		registry_.add(rid, vortarismodloader::ProviderEntry{ "__registry__", String(), 0, true, p_default });
+	} else {
+		// Resource placeholder -> path provider (must be a path string).
+		if (p_default.get_type() != Variant::STRING || String(p_default).is_empty()) {
+			ERR_PRINT(String("VML: set_placeholder for type '") + type +
+					String("' requires a resource path default"));
+			return false;
+		}
+		const String path = String(p_default);
+		registry_map_[{ rid.ns, rid.path }] =
+				RegistryEntry{ path, type, p_description, false, Variant(), true };
+		registry_.add(rid, vortarismodloader::ProviderEntry{ "__registry__", path, 0, true, Variant() });
+	}
+	refresh_database_entry(rid); // stale DB cache must follow the new route
+	log_verbose(String("placeholder: ") + p_id + String(" (") + type + String(")"));
+	return true;
+}
+
+PackedStringArray VMLModLoader::get_placeholder_ids(const String &p_type) const {
+	PackedStringArray out;
+	for (const auto &kv : registry_map_) {
+		if (!kv.second.placeholder) {
+			continue;
+		}
+		if (!p_type.is_empty() && kv.second.type != p_type) {
+			continue;
+		}
+		out.push_back(String(kv.first.ns) + String(":") + String(kv.first.path));
+	}
+	out.sort();
+	return out;
 }
 
 Dictionary VMLModLoader::get_registry_entry(const String &p_id) const {
@@ -665,6 +788,9 @@ Dictionary VMLModLoader::get_registry_entry(const String &p_id) const {
 		if (it->second.has_value) {
 			out["value"] = it->second.value;
 		}
+		if (it->second.placeholder) {
+			out["placeholder"] = true;
+		}
 	}
 	return out;
 }
@@ -679,6 +805,9 @@ Dictionary VMLModLoader::get_registry() const {
 		entry["description"] = kv.second.description;
 		if (kv.second.has_value) {
 			entry["value"] = kv.second.value;
+		}
+		if (kv.second.placeholder) {
+			entry["placeholder"] = true;
 		}
 		out[canonical] = entry;
 	}
@@ -714,6 +843,9 @@ Error VMLModLoader::save_registry(const String &p_path) {
 		entry["description"] = kv.second.description;
 		if (kv.second.has_value) {
 			entry["value"] = kv.second.value;
+		}
+		if (kv.second.placeholder) {
+			entry["placeholder"] = true;
 		}
 		data[canonical] = entry;
 	}
@@ -765,7 +897,8 @@ Error VMLModLoader::load_registry(const String &p_path) {
 				vortarismodloader::ResourceId rid;
 				if (vortarismodloader::ResourceId::parse(String(k), rid)) {
 					registry_map_[{ rid.ns, rid.path }] =
-							RegistryEntry{ String(), String(), String(), true, entry["value"] };
+							RegistryEntry{ String(), String(), String(), true, entry["value"],
+									entry.get("placeholder", false) };
 					registry_.add(rid,
 							vortarismodloader::ProviderEntry{ "__registry__", String(), 0, true, entry["value"] });
 					refresh_database_entry(rid);
@@ -776,7 +909,8 @@ Error VMLModLoader::load_registry(const String &p_path) {
 			if (p.is_empty()) {
 				continue;
 			}
-			set_registry_entry(String(k), p, entry.get("type", String()), entry.get("description", String()));
+			set_registry_entry(String(k), p, entry.get("type", String()), entry.get("description", String()),
+					entry.get("placeholder", false));
 		}
 		print_line(String("VML: registry loaded from ") + p_f);
 		return OK;
@@ -1475,6 +1609,74 @@ int VMLModLoader::mod_priority(const String &p_mod_id) const {
 		}
 	}
 	return -1;
+}
+
+void VMLModLoader::load_custom_order() {
+	custom_load_order_.clear();
+	Ref<FileAccess> f = FileAccess::open("user://vml/load_order.json", FileAccess::READ);
+	if (f.is_null()) {
+		return;
+	}
+	const Variant parsed = JSON::parse_string(f->get_as_text());
+	if (parsed.get_type() != Variant::ARRAY) {
+		return;
+	}
+	const Array a = parsed;
+	for (int i = 0; i < a.size(); i++) {
+		if (a[i].get_type() == Variant::STRING) {
+			custom_load_order_.push_back(String(a[i]));
+		}
+	}
+}
+
+void VMLModLoader::save_custom_order() {
+	DirAccess::make_dir_recursive_absolute("user://vml");
+	Array a;
+	for (const String &id : custom_load_order_) {
+		a.push_back(id);
+	}
+	Ref<FileAccess> f = FileAccess::open("user://vml/load_order.json", FileAccess::WRITE);
+	if (f.is_null()) {
+		return;
+	}
+	f->store_string(JSON::stringify(a));
+	f->close();
+}
+
+void VMLModLoader::reorder_load_order() {
+	if (custom_load_order_.empty()) {
+		return;
+	}
+	std::vector<String> reordered;
+	for (const String &wanted : custom_load_order_) {
+		if (std::find(load_order_.begin(), load_order_.end(), wanted) != load_order_.end() &&
+				std::find(reordered.begin(), reordered.end(), wanted) == reordered.end()) {
+			reordered.push_back(wanted);
+		}
+	}
+	// Keep every valid mod that is not in the custom order (newly discovered ones)
+	// in the dependency-sorted topological order.
+	for (const String &id : load_order_) {
+		if (std::find(reordered.begin(), reordered.end(), id) == reordered.end()) {
+			reordered.push_back(id);
+		}
+	}
+	load_order_ = std::move(reordered);
+}
+
+void VMLModLoader::reapply_overlay_priorities() {
+	overlays_.reorder(load_order_);
+	for (const String &id : load_order_) {
+		ModRecord *rec = find_mod(id);
+		if (rec == nullptr || !rec->enabled || !rec->content_scanned) {
+			continue;
+		}
+		registry_.remove_mod(id);
+		database_.erase_mod(id);
+		rec->content_scanned = false;
+		scan_mod_content(*rec);
+	}
+	log_debug("scan: overlay priorities re-applied after set_mod_order");
 }
 
 void VMLModLoader::scan_mod_content(ModRecord &p_rec) {
@@ -2355,11 +2557,14 @@ void VMLModLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("unreserve", "id"), &VMLModLoader::unreserve);
 	ClassDB::bind_method(D_METHOD("get_id_data_type", "id"), &VMLModLoader::get_id_data_type);
 
-	ClassDB::bind_method(D_METHOD("set_registry_entry", "id", "path", "type", "description"),
-			&VMLModLoader::set_registry_entry, DEFVAL(""), DEFVAL(""));
+	ClassDB::bind_method(D_METHOD("set_registry_entry", "id", "path", "type", "description", "placeholder"),
+			&VMLModLoader::set_registry_entry, DEFVAL(""), DEFVAL(""), DEFVAL(false));
 	ClassDB::bind_method(D_METHOD("get_registry_entry", "id"), &VMLModLoader::get_registry_entry);
 	ClassDB::bind_method(D_METHOD("get_registry"), &VMLModLoader::get_registry);
 	ClassDB::bind_method(D_METHOD("remove_registry_entry", "id"), &VMLModLoader::remove_registry_entry);
+	ClassDB::bind_method(D_METHOD("set_placeholder", "id", "type", "default", "description"),
+			&VMLModLoader::set_placeholder, DEFVAL(""));
+	ClassDB::bind_method(D_METHOD("get_placeholder_ids", "type"), &VMLModLoader::get_placeholder_ids, DEFVAL(""));
 	ClassDB::bind_method(D_METHOD("save_registry", "path"), &VMLModLoader::save_registry, DEFVAL(""));
 	ClassDB::bind_method(D_METHOD("load_registry", "path"), &VMLModLoader::load_registry, DEFVAL(""));
 	ClassDB::bind_method(D_METHOD("reroute", "id", "path"), &VMLModLoader::reroute);
@@ -2395,6 +2600,11 @@ void VMLModLoader::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("is_mod_enabled", "mod_id"), &VMLModLoader::is_mod_enabled);
 	ClassDB::bind_method(D_METHOD("is_mod_loaded", "mod_id"), &VMLModLoader::is_mod_loaded);
+	ClassDB::bind_method(D_METHOD("get_mod_display_name", "mod_id"), &VMLModLoader::get_mod_display_name);
+	ClassDB::bind_method(D_METHOD("get_mod_description", "mod_id"), &VMLModLoader::get_mod_description);
+	ClassDB::bind_method(D_METHOD("get_mod_priority", "mod_id"), &VMLModLoader::get_mod_priority);
+	ClassDB::bind_method(D_METHOD("get_mod_order"), &VMLModLoader::get_mod_order);
+	ClassDB::bind_method(D_METHOD("set_mod_order", "order"), &VMLModLoader::set_mod_order);
 	ClassDB::bind_method(D_METHOD("get_mod_dependents", "mod_id"), &VMLModLoader::get_mod_dependents);
 	ClassDB::bind_method(D_METHOD("get_mod_dependencies", "mod_id"), &VMLModLoader::get_mod_dependencies);
 	ClassDB::bind_method(D_METHOD("enable_mod", "mod_id"), &VMLModLoader::enable_mod);
