@@ -161,8 +161,16 @@ func _ready() -> void:
 	var detail_panel := PanelContainer.new()
 	detail_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	v_split.add_child(detail_panel)
+	# Cap the Details panel height (content scrolls) so it can never squeeze the
+	# Hooks/Content tabs out of view; the split divider remains draggable.
+	var detail_scroll := ScrollContainer.new()
+	detail_scroll.custom_minimum_size.y = 150
+	detail_scroll.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	detail_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	detail_panel.add_child(detail_scroll)
 	var detail_vbox := VBoxContainer.new()
-	detail_panel.add_child(detail_vbox)
+	detail_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	detail_scroll.add_child(detail_vbox)
 	detail_vbox.add_child(_section_title("Details"))
 	detail_vbox.add_child(_make_sep())
 	_detail_name = Label.new()
@@ -203,6 +211,7 @@ func _ready() -> void:
 
 	var tabs := TabContainer.new()
 	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	tabs.custom_minimum_size.y = 120
 	v_split.add_child(tabs)
 
 	# Hooks tab. (The old Config *tab* was removed in 0.3.1 — configuration is
@@ -767,8 +776,13 @@ func _build_config_dialog() -> void:
 	_config_dlg.title = "Mod Config"
 	_config_dlg.ok_button_text = "Save"
 	_config_dlg.cancel_button_text = "Cancel"
+	# Bound the dialog (wrap_controls=false + explicit size) so a large schema or
+	# long JSON text can never blow it up off-screen.
+	_config_dlg.wrap_controls = false
+	_config_dlg.min_size = Vector2(460, 420)
+	_config_dlg.size = Vector2(460, 500)
 	var vbox := VBoxContainer.new()
-	vbox.custom_minimum_size = Vector2(460, 380)
+	vbox.custom_minimum_size = Vector2(460, 420)
 	_config_dlg.add_child(vbox)
 	var status := Label.new()
 	vbox.add_child(status)
