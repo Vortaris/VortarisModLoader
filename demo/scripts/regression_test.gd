@@ -46,6 +46,28 @@ func _on_ctx_hook(ctx: Dictionary, amount: int) -> Dictionary:
 	ctx["amount"] = ctx.get("amount", 0) + amount
 	return ctx
 
+
+# Recursive directory delete (used to clean pck test staging under user://).
+func _rmtree(path: String) -> void:
+	if DirAccess.dir_exists_absolute(path):
+		var d := DirAccess.open(path)
+		if d == null:
+			return
+		d.list_dir_begin()
+		var e := d.get_next()
+		while e != "":
+			if e != "." and e != "..":
+				var child := path + "/" + e
+				if d.current_is_dir():
+					_rmtree(child)
+				else:
+					DirAccess.remove_absolute(child)
+			e = d.get_next()
+		d.list_dir_end()
+		DirAccess.remove_absolute(path)
+	elif FileAccess.file_exists(path):
+		DirAccess.remove_absolute(path)
+
 func _initialize() -> void:
 	var failed := false
 	VML.mod_loaded.connect(_on_mod_loaded)
@@ -53,6 +75,18 @@ func _initialize() -> void:
 	# Clean up any zip mod left over from a previous run (user:// persists).
 	if VML.get_mod_ids().has("archerpack"):
 		VML.uninstall_mod("archerpack")
+	# Remove a stale .pck test artifact from a previous (crashed) run so the suite
+	# is repeatable; the pack file is re-generated later by the T65 block. The OS
+	# (globalized) path is used because a mounted pack makes res:// read-only.
+	var stale_pck := ProjectSettings.globalize_path("res://mods/sample_pck_mod")
+	if FileAccess.file_exists("res://mods/sample_pck_mod/sample_mod.pck"):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path("res://mods/sample_pck_mod/sample_mod.pck"))
+	_rmtree(stale_pck)
+	# A wizard-created mod left behind by a crashed run would be discovered at boot
+	# and re-created by T30; drop it so the suite is repeatable.
+	var stale_wiz := ProjectSettings.globalize_path("res://mods-unpacked/test_wiz")
+	if DirAccess.dir_exists_absolute(stale_wiz):
+		_rmtree(stale_wiz)
 	# Reset persisted enable-state from previous runs so the suite is repeatable.
 	DirAccess.remove_absolute("user://vml/profile.json")
 	VML.rescan()
@@ -371,11 +405,12 @@ func _initialize() -> void:
 	if not VMLTestUtil.expect(VML.has(wiz_id + ":unit"), "T30 wizard mod content indexed"):
 		failed = true
 
-	# Cleanup the wizard test mod (res:// mods can't be uninstall_mod'd).
-	DirAccess.remove_absolute(wiz_base + "/data/%s/unit.json" % wiz_id)
-	DirAccess.remove_absolute(wiz_base + "/data/%s" % wiz_id)
-	DirAccess.remove_absolute(wiz_base + "/manifest.json")
-	DirAccess.remove_absolute(wiz_base)
+	# Cleanup the wizard test mod (res:// mods can't be uninstall_mod'd). The OS
+	# (globalized) path is used for directory removal — res:// DirAccess directory
+	# deletion is unreliable, and the wizard folder must not survive the run.
+	_rmtree(ProjectSettings.globalize_path(wiz_base + "/data/%s" % wiz_id))
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(wiz_base + "/manifest.json"))
+	_rmtree(ProjectSettings.globalize_path(wiz_base))
 	VML.rescan()
 	if not VMLTestUtil.expect(not VML.get_mod_ids().has(wiz_id), "T30 wizard mod removed cleanly"):
 		failed = true
@@ -820,6 +855,125 @@ func _initialize() -> void:
 			"T62 cmd_install archerpack exit 0"):
 		failed = true
 	if not VMLTestUtil.expect(VML.uninstall_mod("archerpack") == OK, "T62 cleanup uninstall archerpack"):
+		failed = true
+
+	# --- 0.3.0 A1: explicit id_overrides (manifest extra.godot.id_overrides) ---
+	if not VMLTestUtil.expect(VML.has("game:elite.archer"), "T63 id_override indexed"):
+		failed = true
+	if not VMLTestUtil.expect(not VML.has("override_mod:units.archer"),
+			"T63 id_override replaces path inference for the file"):
+		failed = true
+	var info63: Dictionary = VML.get_id_info("game:elite.archer")
+	if not VMLTestUtil.expect_eq(info63.get("provider_mod"), "override_mod",
+			"T63 override provider is override_mod"):
+		failed = true
+	if not VMLTestUtil.expect((info63.get("path") as String).begins_with("res://mods-unpacked/override_mod/"),
+			"T63 override resolves to the override_mod file"):
+		failed = true
+	if not VMLTestUtil.expect_eq(info63.get("explicit"), true, "T63 override provider is explicit"):
+		failed = true
+	var provs63: Array = VML.list_providers("game:elite.archer").get("providers", [])
+	if not VMLTestUtil.expect_eq(provs63.size(), 2, "T63 two files map to the same id (arbitrated)"):
+		failed = true
+	var elite63: Dictionary = VML.get_data("game:elite.archer")
+	if not VMLTestUtil.expect_eq(elite63.get("name"), "Elite Archer", "T63 override data readable"):
+		failed = true
+
+	# --- 0.3.0 A2: show_error_dialogs setting + console error summary ---
+	if not VMLTestUtil.expect(
+			ProjectSettings.get_setting("vortarismodloader/show_error_dialogs", false) == false,
+			"T66 show_error_dialogs default false"):
+		failed = true
+	ProjectSettings.set_setting("vortarismodloader/show_error_dialogs", true)
+	VML.rescan() # headless: no dialog, but the console + get_error_summary carry the errors
+	if not VMLTestUtil.expect(VML.get_error_summary().contains("badjson_mod"),
+			"T66 error summary lists badjson_mod"):
+		failed = true
+	if not VMLTestUtil.expect(VML.get_error_summary().contains("incompat_mod"),
+			"T66 error summary lists incompat_mod"):
+		failed = true
+	if not VMLTestUtil.expect(ProjectSettings.get_setting("vortarismodloader/show_error_dialogs", false) == true,
+			"T66 show_error_dialogs reads true after set"):
+		failed = true
+	ProjectSettings.set_setting("vortarismodloader/show_error_dialogs", false)
+
+	# --- 0.3.0 A3: advanced debug output (vortarismodloader/debug_output) ---
+	ProjectSettings.set_setting("vortarismodloader/debug_output", true)
+	VML.clear_debug_log()
+	VML.rescan() # scan + registry + db + hooks all log [vortarismodloader][dbg]
+	var dlog: PackedStringArray = VML.get_debug_log()
+	var has_dbg := false
+	for line in dlog:
+		if line.begins_with("[vortarismodloader][dbg]"):
+			has_dbg = true
+			break
+	if not VMLTestUtil.expect(dlog.size() > 0 and has_dbg, "T64 debug log has [vortarismodloader][dbg] lines"):
+		failed = true
+	ProjectSettings.set_setting("vortarismodloader/debug_output", false)
+	VML.clear_debug_log()
+	VML.get_data("game:units.knight")
+	if not VMLTestUtil.expect(VML.get_debug_log().is_empty(), "T64 no debug log when debug_output=false"):
+		failed = true
+
+	# --- 0.3.0 A4: .pck pack mounting (content under mods/<mod_id>/) ---
+	var pck_path := "res://mods/sample_pck_mod/sample_mod.pck"
+	# Clean a stale pack from a previously-crashed run so this run is repeatable.
+	if FileAccess.file_exists(pck_path):
+		DirAccess.remove_absolute(pck_path)
+	_rmtree("res://mods/sample_pck_mod")
+	var pck_src := "user://vml/test_pck"
+	_rmtree(pck_src)
+	DirAccess.make_dir_recursive_absolute(pck_src + "/mods/sample_pck/data/sample_pck")
+	FileAccess.open(pck_src + "/mods/sample_pck/manifest.json", FileAccess.WRITE).store_string(
+			'{"name":"Sample Pck","namespace":"sample_pck","version_number":"1.0.0","extra":{"godot":{}}}')
+	FileAccess.open(pck_src + "/mods/sample_pck/data/sample_pck/unit.json", FileAccess.WRITE).store_string(
+			'{"id":"sample_pck:unit","name":"Pck Unit","health":5}')
+	DirAccess.make_dir_recursive_absolute(pck_path.get_base_dir())
+	var pk := PCKPacker.new()
+	var pk_ok: bool = pk.pck_start(pck_path) == OK
+	if pk_ok:
+		pk_ok = pk.add_file("res://mods/sample_pck/manifest.json",
+				pck_src + "/mods/sample_pck/manifest.json") == OK
+		pk_ok = pk.add_file("res://mods/sample_pck/data/sample_pck/unit.json",
+				pck_src + "/mods/sample_pck/data/sample_pck/unit.json") == OK and pk_ok
+		pk_ok = pk.flush() == OK and pk_ok
+	if not VMLTestUtil.expect(pk_ok, "T65 PCKPacker builds the sample pck"):
+		failed = true
+	VML.rescan() # mounts res://mods/sample_pck_mod/sample_mod.pck and discovers sample_pck
+	if not VMLTestUtil.expect(VML.get_mod_ids().has("sample_pck"), "T65 pck mod discovered"):
+		failed = true
+	if not VMLTestUtil.expect(VML.has("sample_pck:unit"), "T65 pck content indexed"):
+		failed = true
+	var pck_unit: Dictionary = VML.get_data("sample_pck:unit")
+	if not VMLTestUtil.expect_eq(pck_unit.get("name"), "Pck Unit", "T65 pck data readable"):
+		failed = true
+	# Cleanup: remove the pack file + staging so the next run starts clean. The
+	# mounted content stays in this process (load_resource_pack cannot unmount),
+	# but deleting the file via the OS path (globalize) works even though res://
+	# is now read-only, so the next run won't re-mount it.
+	if FileAccess.file_exists(pck_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(pck_path))
+	_rmtree(ProjectSettings.globalize_path("res://mods/sample_pck_mod"))
+	_rmtree(pck_src)
+
+	# --- 0.3.0 A5: is_mod_loaded reflects enable/disable immediately (no rescan) ---
+	# mylib is a pure-data mod (no mod_main) — its "loaded" state must flip on
+	# enable/disable via content_scanned, not via mod_main_instantiated.
+	VML.disable_mod("mylib") # cascade-disables mymod (mymod depends on mylib)
+	if not VMLTestUtil.expect(not VML.is_mod_loaded("mylib"), "T67 disabled mod not loaded"):
+		failed = true
+	if not VMLTestUtil.expect(VML.enable_mod("mylib"), "T67 enable mylib"):
+		failed = true
+	if not VMLTestUtil.expect(VML.is_mod_loaded("mylib"), "T67 pure-data mod loaded immediately after enable"):
+		failed = true
+	if not VMLTestUtil.expect(VML.disable_mod("mylib"), "T67 disable mylib"):
+		failed = true
+	if not VMLTestUtil.expect(not VML.is_mod_loaded("mylib"), "T67 unloaded immediately after disable"):
+		failed = true
+	if not VMLTestUtil.expect(VML.enable_mod("mymod"), "T67 re-enable mymod (cascades mylib)"):
+		failed = true
+	if not VMLTestUtil.expect(VML.is_mod_loaded("mymod") and VML.is_mod_loaded("mylib"),
+			"T67 both re-enabled and loaded"):
 		failed = true
 
 	quit(1 if failed else 0)
