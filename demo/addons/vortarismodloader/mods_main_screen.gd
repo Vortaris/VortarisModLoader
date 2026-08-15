@@ -95,9 +95,11 @@ func _ready() -> void:
 	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(vbox)
 
-	# Toolbar.
+	# Toolbar (top): actions + an app title on the right.
+	var toolbar_panel := PanelContainer.new()
+	vbox.add_child(toolbar_panel)
 	var toolbar := HBoxContainer.new()
-	vbox.add_child(toolbar)
+	toolbar_panel.add_child(toolbar)
 	_add_btn(toolbar, "Rescan", _on_rescan)
 	_add_btn(toolbar, "Install PCK", _on_install_pck)
 	_add_btn(toolbar, "Install Zip", _on_install_zip) # legacy, optional dev flow
@@ -106,51 +108,70 @@ func _ready() -> void:
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	toolbar.add_child(spacer)
-	_status = Label.new()
-	toolbar.add_child(_status)
+	var title := Label.new()
+	title.text = "VortarisModLoader"
+	title.add_theme_color_override("font_color", Color(0.55, 0.55, 0.6))
+	toolbar.add_child(title)
+
+	vbox.add_child(_make_sep())
 
 	# Split: mod list | details.
 	var split := HSplitContainer.new()
 	split.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	vbox.add_child(split)
 
-	# Left: mod list.
+	# Left: mod list, grouped in a panel with its own header.
+	var left_panel := PanelContainer.new()
+	left_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	split.add_child(left_panel)
+	var left_vbox := VBoxContainer.new()
+	left_panel.add_child(left_vbox)
+	left_vbox.add_child(_section_title("Mods"))
+	left_vbox.add_child(_make_sep())
 	_mod_tree = _ModListTree.new()
 	_setup_columns(_mod_tree, ["Mod", "Namespace", "Enabled", "Loaded", "Priority", "Deps"],
 			[140, 110, 60, 60, 50, 120])
 	_mod_tree.item_selected.connect(_on_mod_selected)
 	_mod_tree.mods_reordered.connect(_on_mods_reordered)
 	_mod_tree.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	split.add_child(_mod_tree)
+	_mod_tree.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	left_vbox.add_child(_mod_tree)
 
 	# Right: details + hooks + content.
 	var right := VBoxContainer.new()
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	split.add_child(right)
 
+	# Details header panel.
+	var detail_panel := PanelContainer.new()
+	right.add_child(detail_panel)
+	var detail_vbox := VBoxContainer.new()
+	detail_panel.add_child(detail_vbox)
+	detail_vbox.add_child(_section_title("Details"))
+	detail_vbox.add_child(_make_sep())
 	_detail_name = Label.new()
 	_detail_name.add_theme_font_size_override("font_size", 18)
 	_detail_name.text = "(no mod selected)"
-	right.add_child(_detail_name)
+	detail_vbox.add_child(_detail_name)
 	_detail_meta = Label.new()
 	_detail_meta.add_theme_color_override("font_color", Color(0.6, 0.6, 0.65))
-	right.add_child(_detail_meta)
+	detail_vbox.add_child(_detail_meta)
 	_detail_desc = Label.new()
 	_detail_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	right.add_child(_detail_desc)
+	detail_vbox.add_child(_detail_desc)
 	_detail_root = Label.new()
 	_detail_root.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_detail_root.add_theme_color_override("font_color", Color(0.55, 0.55, 0.6))
-	right.add_child(_detail_root)
+	detail_vbox.add_child(_detail_root)
 	_detail_deps = Label.new()
 	_detail_deps.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	right.add_child(_detail_deps)
+	detail_vbox.add_child(_detail_deps)
 	_detail_errors = Label.new()
 	_detail_errors.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	right.add_child(_detail_errors)
+	detail_vbox.add_child(_detail_errors)
 
 	var actions := HBoxContainer.new()
-	right.add_child(actions)
+	detail_vbox.add_child(actions)
 	_enable_btn = _add_btn(actions, "Enable", _on_toggle)
 	_export_btn = _add_btn(actions, "Export PCK", _on_export_pck)
 	_uninstall_btn = _add_btn(actions, "Uninstall", _on_uninstall)
@@ -190,9 +211,9 @@ func _ready() -> void:
 	tabs.add_child(content_vbox)
 	var filter_row := HBoxContainer.new()
 	content_vbox.add_child(filter_row)
-	filter_row.add_child(_lbl("ns:"))
+	filter_row.add_child(_lbl("namespace:"))
 	_content_filter = LineEdit.new()
-	_content_filter.placeholder_text = "game"
+	_content_filter.placeholder_text = "filter within mod (optional)"
 	_content_filter.text_changed.connect(func(_t: String): _refresh_content())
 	filter_row.add_child(_content_filter)
 	_content_tree = VMLResizableTree.new()
@@ -200,12 +221,25 @@ func _ready() -> void:
 	_content_tree.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	content_vbox.add_child(_content_tree)
 
+	# Refresh hooks/content when switching tabs (the selected mod's data may have
+	# changed since the tab was last shown).
+	tabs.tab_changed.connect(_on_tab_changed)
+
 	_wizard = ModWizard.new()
 	add_child(_wizard)
 	_wizard.mod_created.connect(_on_mod_created)
 
 	_build_config_dialog()
 	_build_confirm_dialog()
+
+	# Bottom status bar, visually separated from the content area.
+	vbox.add_child(_make_sep())
+	var status_bar := HBoxContainer.new()
+	vbox.add_child(status_bar)
+	_status = Label.new()
+	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	status_bar.add_child(_status)
 
 	refresh()
 
@@ -233,7 +267,22 @@ func _add_btn(parent: Control, text: String, callable: Callable) -> Button:
 func _lbl(text: String) -> Label:
 	var l := Label.new()
 	l.text = text
-	l.custom_minimum_size = Vector2(36, 0)
+	l.custom_minimum_size = Vector2(84, 0)
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	return l
+
+
+## Thin horizontal rule used to separate the main screen's visual regions.
+func _make_sep() -> HSeparator:
+	return HSeparator.new()
+
+
+## Section header used inside the left/right panels.
+func _section_title(text: String) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_font_size_override("font_size", 16)
+	l.add_theme_color_override("font_color", Color(0.8, 0.8, 0.85))
 	return l
 
 
@@ -241,6 +290,10 @@ func refresh() -> void:
 	if not Engine.has_singleton("VML"):
 		_status.text = "VML engine singleton not loaded"
 		return
+	# Editor preview: run startup so mod_main scripts register their hooks in
+	# _init (the Hooks tab depends on them). Idempotent — a no-op once done.
+	if not VML.is_startup_done():
+		VML.finish_startup()
 	_refresh_mods()
 	_refresh_detail()
 	_refresh_hooks()
@@ -352,58 +405,86 @@ func _refresh_detail() -> void:
 func _refresh_hooks() -> void:
 	_hook_tree.clear()
 	var root := _hook_tree.create_item()
+	var sel := _selected_mod
+	if sel.is_empty() or not Engine.has_singleton("VML"):
+		var empty := _hook_tree.create_item(root)
+		empty.set_text(0, "(select a mod to see its hooks)")
+		return
+	if not VML.is_startup_done():
+		VML.finish_startup()
 	var hooks: Dictionary = VML.list_hooks()
 	var points: Dictionary = VML.list_hook_points()
 	for hook_id in hooks:
-		var info: Dictionary = hooks[hook_id]
+		# Show a hook only when the selected mod registered at least one handler
+		# on it (list_hooks() gives every hook from every mod — filter per mod).
+		var handlers: Array = VML.list_hook_handlers(hook_id)
+		var mine: Array = []
+		for h in handlers:
+			if str(h.get("mod_id", "")) == sel:
+				mine.append(h)
+		if mine.is_empty():
+			continue
 		var desc: String = points.get(hook_id, {}).get("description", "") if points.has(hook_id) else ""
 		var item := _hook_tree.create_item(root)
 		item.set_text(0, hook_id)
-		item.set_text(1, "%d handler(s)" % info.get("count", 0))
+		item.set_text(1, "%d handler(s)" % mine.size())
 		item.set_text(2, "")
 		item.set_text(3, desc)
 		# One row per handler: [Hook, Mod, Priority, Description].
-		var handlers: Array = VML.list_hook_handlers(hook_id)
-		for h in handlers:
+		for h in mine:
 			var row := _hook_tree.create_item(item)
 			row.set_text(0, "")
 			row.set_text(1, str(h.get("mod_id", "")))
 			row.set_text(2, str(h.get("priority", 0)))
 			row.set_text(3, desc)
 		item.collapsed = true
-	for point_id in points:
-		if hooks.has(point_id):
-			continue # already shown as the hook's parent row
-		var info: Dictionary = points[point_id]
-		var item := _hook_tree.create_item(root)
-		item.set_text(0, point_id)
-		item.set_text(1, "declared")
-		item.set_text(2, "")
-		item.set_text(3, info.get("description", ""))
+	if root.get_child_count() == 0:
+		var empty := _hook_tree.create_item(root)
+		empty.set_text(0, "(no hooks registered by this mod)")
 
 
 func _refresh_content() -> void:
 	_content_tree.clear()
 	var root := _content_tree.create_item()
+	var sel := _selected_mod
+	if sel.is_empty() or not Engine.has_singleton("VML"):
+		var empty := _content_tree.create_item(root)
+		empty.set_text(0, "(select a mod to see its content)")
+		return
 	var ns_filter := _content_filter.text.strip_edges()
-	var ids := VML.list_ids()
+	# The mod's id equals its content namespace: show only ids under it.
+	var ids := VML.list_ids(sel + ":")
 	for ns in ids:
-		if not ns_filter.is_empty() and not str(ns).begins_with(ns_filter):
-			continue
 		for path in ids[ns]:
 			var full: String = str(ns) + ":" + str(path)
+			if not ns_filter.is_empty() and not full.contains(ns_filter):
+				continue
 			var info: Dictionary = VML.get_id_info(full)
 			var item := _content_tree.create_item(root)
 			item.set_text(0, full)
 			item.set_text(1, info.get("path", ""))
 			item.set_text(2, info.get("provider_mod", ""))
 			item.set_text(3, info.get("data_type", ""))
+	if root.get_child_count() == 0:
+		var empty := _content_tree.create_item(root)
+		empty.set_text(0, "(no content in this mod's namespace)")
 
 
 func _on_mod_selected() -> void:
 	var item := _mod_tree.get_selected()
 	_selected_mod = item.get_meta("mod_id", "") if item else ""
 	_refresh_detail()
+	_refresh_hooks()
+	_refresh_content()
+
+
+## TabContainer.tab_changed — refresh the per-mod Hooks/Content views whenever the
+## user switches to them (data may have changed since the tab was last shown).
+func _on_tab_changed(_index: int) -> void:
+	if not Engine.has_singleton("VML"):
+		return
+	_refresh_hooks()
+	_refresh_content()
 
 
 func _on_mods_reordered(order: PackedStringArray) -> void:

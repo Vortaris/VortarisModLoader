@@ -1,16 +1,23 @@
 @tool
 class_name VMLResizableTree
 extends Tree
-## Tree with user-draggable column header separators.
+## Tree with user-draggable column separators.
 ##
 ## Godot's Tree has **no built-in** column-header drag-resize (verified on 4.7).
 ## This subclass listens on the `gui_input` signal (the native Tree handling keeps
 ## running, so selection / drag-reorder are untouched) and intercepts press/drag
-## on the header separators, pinning the dragged column's width via
+## on the column separators, pinning the dragged column's width via
 ## set_column_custom_minimum_width. Non-expanding columns (see
 ## set_column_expand) honour the pinned width exactly; the last expanding column
 ## absorbs the remainder. Column content is never clipped
 ## (set_column_clip_content(false)) so a dragged column shows its full text.
+##
+## The separator hit-test is **full-column-height**: pressing a separator anywhere
+## in the tree (header OR a body row) starts the resize, not just in the header.
+## The hit is decided purely by the mouse x near a column boundary, so rows
+## themselves stay selectable / drag-reorderable everywhere except the ~6px
+## separator band. Accepting the press event on a separator prevents the native
+## Tree drag-reorder from also starting.
 
 const SEPARATOR_TOLERANCE := 6.0
 
@@ -53,10 +60,9 @@ func _on_gui_input(event: InputEvent) -> void:
 
 
 ## Column index whose right-hand separator is under `pos`, or -1 when the cursor
-## is not on a header separator.
+## is not near a column boundary. Deliberately ignores `pos.y` so the hit zone
+## spans the whole tree height (header + every row), not just the header row.
 func _separator_at(pos: Vector2) -> int:
-	if pos.y > _header_height():
-		return -1
 	var x := 0.0
 	for col in columns - 1:
 		x += float(get_column_width(col))
@@ -66,7 +72,8 @@ func _separator_at(pos: Vector2) -> int:
 
 
 ## Header row height, mirroring Tree::get_header_height() (font height +
-## v_separation gutters + sort-arrow gutter).
+## v_separation gutters + sort-arrow gutter). Kept as a public helper — the G4
+## regression test uses it to target the header row.
 func _header_height() -> float:
 	var font := get_theme_font("font")
 	var h := float(font.get_height(get_theme_font_size("font_size")))

@@ -69,7 +69,7 @@ func _ready() -> void:
 	_tabs.add_child(browse_vbox)
 	var filter_row := HBoxContainer.new()
 	browse_vbox.add_child(filter_row)
-	filter_row.add_child(_lbl("ns:"))
+	filter_row.add_child(_lbl("namespace:"))
 	_browse_filter_ns = LineEdit.new()
 	_browse_filter_ns.placeholder_text = "game"
 	_browse_filter_ns.text_changed.connect(func(_t: String): _refresh_browse())
@@ -119,8 +119,8 @@ func _build_dialog() -> void:
 	_dlg.ok_button_text = "OK"
 	_dlg.cancel_button_text = "Cancel"
 	# Explicit size (not just min_size): first-open must not auto-fill the screen.
-	_dlg.size = Vector2i(460, 320)
-	_dlg.min_size = Vector2i(460, 320)
+	_dlg.size = Vector2i(460, 420)
+	_dlg.min_size = Vector2i(460, 420)
 	var form := GridContainer.new()
 	form.columns = 2
 	_dlg.add_child(form)
@@ -335,7 +335,7 @@ func _on_new() -> void:
 	_reset_type_options()
 	_dlg_type.select(0)
 	_on_type_changed()
-	_dlg.popup_centered(Vector2(460, 320))
+	_dlg.popup_centered(Vector2(460, 420))
 
 
 func _on_edit() -> void:
@@ -369,7 +369,7 @@ func _on_edit() -> void:
 		_dlg_value.text = entry.get("path", "")
 		_dlg_value_text.text = ""
 	_on_type_changed()
-	_dlg.popup_centered(Vector2(460, 320))
+	_dlg.popup_centered(Vector2(460, 420))
 
 
 func _on_delete() -> void:
@@ -423,11 +423,11 @@ func _on_dialog_ok() -> void:
 	var id := _dlg_id.text.strip_edges()
 	if id.is_empty():
 		_dlg_error.text = "ID is required"
-		_dlg.popup_centered(Vector2(460, 320))
+		_dlg.popup_centered(Vector2(460, 420))
 		return
 	if not _id_is_valid(id):
 		_dlg_error.text = "invalid id (namespace:path, dotted, lower-case a-z0-9_-.)"
-		_dlg.popup_centered(Vector2(460, 320))
+		_dlg.popup_centered(Vector2(460, 420))
 		return
 	var t: String = _dlg_type.get_item_text(_dlg_type.selected)
 	# "custom" is kept as-is: set_placeholder treats an empty type as data, so a
@@ -441,7 +441,7 @@ func _on_dialog_ok() -> void:
 		if raw.begins_with("res://") or raw.begins_with("user://"):
 			if not VML.set_registry_entry(id, raw, "data", desc):
 				_dlg_error.text = "failed to set registry entry"
-				_dlg.popup_centered(Vector2(460, 320))
+				_dlg.popup_centered(Vector2(460, 420))
 				return
 			print("VML: registry entry set: ", id, " -> ", raw)
 		else:
@@ -449,20 +449,20 @@ func _on_dialog_ok() -> void:
 			var default_val: Variant = parsed if parsed != null else raw
 			if not VML.set_placeholder(id, "data", default_val, desc):
 				_dlg_error.text = "failed to set placeholder"
-				_dlg.popup_centered(Vector2(460, 320))
+				_dlg.popup_centered(Vector2(460, 420))
 				return
 			print("VML: placeholder set: ", id, " -> ", str(default_val))
 	else:
 		var path := _dlg_value.text.strip_edges()
 		if path.is_empty():
 			_dlg_error.text = "a default path is required"
-			_dlg.popup_centered(Vector2(460, 320))
+			_dlg.popup_centered(Vector2(460, 420))
 			return
 		# Resource ids: the default value IS the path. Registry routes and resource
 		# placeholders are the same provider (base-layer priority 0), unified here.
 		if not VML.set_placeholder(id, t, path, desc):
 			_dlg_error.text = "failed to set placeholder"
-			_dlg.popup_centered(Vector2(460, 320))
+			_dlg.popup_centered(Vector2(460, 420))
 			return
 		print("VML: placeholder set: ", id, " -> ", path)
 	_selected_id = id
