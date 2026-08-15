@@ -66,6 +66,7 @@ var _hook_tree: Tree
 var _content_tree: Tree
 var _content_filter: LineEdit
 var _status: Label
+var _v_split: VSplitContainer
 var _wizard: ConfirmationDialog
 var _selected_mod := ""
 
@@ -156,6 +157,7 @@ func _ready() -> void:
 	var v_split := VSplitContainer.new()
 	v_split.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	right.add_child(v_split)
+	_v_split = v_split
 
 	# Details header panel.
 	var detail_panel := PanelContainer.new()
@@ -164,7 +166,7 @@ func _ready() -> void:
 	# Cap the Details panel height (content scrolls) so it can never squeeze the
 	# Hooks/Content tabs out of view; the split divider remains draggable.
 	var detail_scroll := ScrollContainer.new()
-	detail_scroll.custom_minimum_size.y = 150
+	detail_scroll.custom_minimum_size.y = 80
 	detail_scroll.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	detail_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	detail_panel.add_child(detail_scroll)
@@ -211,7 +213,7 @@ func _ready() -> void:
 
 	var tabs := TabContainer.new()
 	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	tabs.custom_minimum_size.y = 120
+	tabs.custom_minimum_size.y = 60
 	v_split.add_child(tabs)
 
 	# Hooks tab. (The old Config *tab* was removed in 0.3.1 — configuration is
@@ -267,6 +269,19 @@ func _ready() -> void:
 	status_bar.add_child(_status)
 
 	refresh()
+
+	# Give the Hooks/Content tabs the majority of the right-column height by
+	# default (the divider stays draggable). Applied after the first layout pass.
+	call_deferred("_apply_default_split")
+
+
+func _apply_default_split() -> void:
+	# After the first layout pass, pin the Details panel to ~25% and leave ~75%
+	# for the Hooks/Content tabs, so they are clearly visible in any window size.
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if _v_split != null and _v_split.size.y > 0:
+		_v_split.split_offset = int(_v_split.size.y * 0.25)
 
 
 func _setup_columns(tree: Tree, titles: Array, widths: Array) -> void:
