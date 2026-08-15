@@ -95,6 +95,11 @@ var _pending_action := "" # "disable" | "enable" | "uninstall"
 
 func _ready() -> void:
 	name = "VML Mods"
+	# Fill the editor main-screen area: this root is added to the editor's
+	# main-screen VBoxContainer, so it needs EXPAND_FILL to take the full height
+	# (otherwise it collapses to its minimum and the whole screen looks "short").
+	size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var vbox := VBoxContainer.new()
 	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(vbox)
@@ -139,6 +144,7 @@ func _ready() -> void:
 	_mod_tree.mods_reordered.connect(_on_mods_reordered)
 	_mod_tree.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_mod_tree.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_mod_tree.custom_minimum_size.y = 150
 	left_vbox.add_child(_mod_tree)
 
 	# Right: details + hooks + content. A VSeparator between the two panes gives a
@@ -211,7 +217,7 @@ func _ready() -> void:
 
 	var tabs := TabContainer.new()
 	tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	tabs.custom_minimum_size.y = 60
+	tabs.custom_minimum_size.y = 150
 	v_split.add_child(tabs)
 
 	# Hooks tab. (The old Config *tab* was removed in 0.3.1 — configuration is
