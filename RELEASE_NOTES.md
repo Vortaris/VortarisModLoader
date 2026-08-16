@@ -1,5 +1,64 @@
 # Release Notes
 
+## 0.3.2
+
+Settings usability pass (user-tested): the mod-path setting is no longer an array,
+the path settings show the correct editor widgets, every `.pck` under the
+configured dirs is mounted, and the settings editor no longer chokes on prose.
+
+### Z1 — Two separate mod-path settings (was a PackedStringArray)
+
+- `vortarismodloader/paths/mod_paths` (PackedStringArray) is **gone from the
+  editor**. It is replaced by two single directory settings:
+  - `vortarismodloader/paths/mod_dir` — default `res://mods` (dev mod main dir)
+  - `vortarismodloader/paths/unpacked_dir` — default `res://mods-unpacked` (legacy
+    unpacked dir)
+- `VMLModLoader::mod_roots()` composes the two into the scan roots; the runtime API
+  (`get_mod_roots` / `add_mod_root` / `remove_mod_root`) is unchanged.
+- `add_mod_root`/`remove_mod_root` now persist extra roots to
+  `vortarismodloader/paths/extra_roots` (runtime-only, hidden from the editor).
+- **Backward compatible**: the old `vortarismodloader/paths/mod_paths` (0.3.1) and
+  flat `vortarismodloader/mod_paths` (0.3.0) arrays are still read and merged into
+  the scan roots, so existing projects keep their custom roots.
+
+### Z2 — Correct setting types / hints
+
+- `mod_dir` / `unpacked_dir` → `PROPERTY_HINT_DIR` (folder picker).
+- `registry_path` → `PROPERTY_HINT_FILE_PATH` (path field, `*.json` filter).
+- `export_mods` and `database_mode` → `PROPERTY_HINT_ENUM`
+  (`embedded,external,none` / `data,all,off`).
+
+### Z3 — All `.pck` files under the configured dirs are mounted
+
+- Confirmed `DiscoveryScanner::scan_pck_files` already recurses into subdirectories;
+  `mount_packs()` iterates the composed `mod_roots()` (now `mod_dir` + `unpacked_dir`),
+  so every `.pck` under either directory (and any nested subdirectory) is mounted.
+
+### Z4 — Setting descriptions / tooltips
+
+- **Godot 4.7 has no tooltip/description support for project settings**:
+  `PropertyInfo` carries only `type/name/class_name/hint/hint_string/usage`, and the
+  Project Settings editor tooltip is generated from the property *name*. The
+  `hint_string` is parsed **semantically** per hint — prose there is not displayed
+  and, worse, on an array/path hint it is read as an element TYPE, which produced
+  `ERROR: Cannot get class '<prose>'.` (see below).
+- Therefore every registered `hint_string` is now strictly semantic (enum options /
+  `*.json` filter) and all setting descriptions live in `docs/release_mods.md` and
+  the README. This is a documented limitation, not a bug in the plugin.
+
+### Z5 — "String formatting error: unsupported format character."
+
+- The editor-side `Cannot get class '<hint_string>'.` error was caused by the
+  `paths/mod_paths` PackedStringArray hint_string being parsed as the array element
+  type (unknown name → `PROPERTY_HINT_RESOURCE_TYPE` → `ClassDB::get_parent_class`
+  on the prose). Removing the array setting (Z1) and keeping every `hint_string`
+  semantic (Z2) removes that error entirely.
+- A separate `String formatting error: unsupported format character.` was reported
+  when CHANT opens. Static audit of every VML C++ and GDScript format string found
+  no invalid `%` sequence — the plugin has no dynamic format strings. It is not
+  reproducible from VML; if it still appears it comes from the host project's own
+  GDScript (a `%` in a format string not followed by a valid specifier).
+
 ## 0.3.1
 
 Project Settings organization, matching the VortarisCSV/VortarisECS layout:

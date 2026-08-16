@@ -32,6 +32,27 @@
 
 namespace godot {
 
+namespace {
+
+// Normalize a settings value (PackedStringArray or untyped Array of Strings) into a
+// PackedStringArray; anything else yields an empty array.
+PackedStringArray _ml_string_array(const Variant &p_value) {
+	PackedStringArray out;
+	if (p_value.get_type() == Variant::PACKED_STRING_ARRAY) {
+		out = p_value;
+	} else if (p_value.get_type() == Variant::ARRAY) {
+		const Array a = p_value;
+		for (int i = 0; i < a.size(); i++) {
+			if (a[i].get_type() == Variant::STRING) {
+				out.push_back(String(a[i]));
+			}
+		}
+	}
+	return out;
+}
+
+} // namespace
+
 VMLModLoader *VMLModLoader::singleton = nullptr;
 
 VMLModLoader::VMLModLoader() {
@@ -2107,22 +2128,35 @@ String VMLModLoader::get_legacy_mod_migration_notice() const {
 }
 
 PackedStringArray VMLModLoader::mod_roots() const {
-	// 0.3.0: default roots are the dev folders (res://mods for pack-mounted /
-	// zip-installed mods, res://mods-unpacked for source folders). user://vml/mods
-	// is no longer a default root — distribution uses .pck packs, dev uses folders.
-	PackedStringArray defaults;
-	defaults.push_back("res://mods");
-	defaults.push_back("res://mods-unpacked");
-	const Variant configured = vortarismodloader::get_ml_setting("paths", "mod_paths", defaults);
+	// 0.3.2: the scan roots are composed from the two per-directory settings
+	// (mod_dir = dev mod main dir, unpacked_dir = legacy unpacked dir) plus any
+	// runtime extra roots persisted by add_mod_root/remove_mod_root. The old
+	// PackedStringArray setting (tiered `paths/mod_paths` or flat
+	// `vortarismodloader/mod_paths` from 0.3.0/0.3.1) is still read and merged as a
+	// backward-compatible fallback, so a project that only ever set the array keeps
+	// working and its entries survive the upgrade (Z1).
 	PackedStringArray out;
-	if (configured.get_type() == Variant::PACKED_STRING_ARRAY) {
-		out = configured;
-	} else if (configured.get_type() == Variant::ARRAY) {
-		const Array a = configured;
-		for (int i = 0; i < a.size(); i++) {
-			if (a[i].get_type() == Variant::STRING) {
-				out.push_back(String(a[i]));
-			}
+	const String mod_dir = String(vortarismodloader::get_ml_setting("paths", "mod_dir", "res://mods"));
+	const String unpacked_dir = String(vortarismodloader::get_ml_setting("paths", "unpacked_dir", "res://mods-unpacked"));
+	if (!mod_dir.is_empty()) {
+		out.push_back(mod_dir);
+	}
+	if (!unpacked_dir.is_empty() && !out.has(unpacked_dir)) {
+		out.push_back(unpacked_dir);
+	}
+	// Legacy array roots (0.3.0 flat / 0.3.1 tiered), merged without duplicates.
+	const PackedStringArray legacy = _ml_string_array(vortarismodloader::get_ml_setting("paths", "mod_paths", Variant()));
+	for (int i = 0; i < legacy.size(); i++) {
+		if (!out.has(legacy[i])) {
+			out.push_back(legacy[i]);
+		}
+	}
+	// Runtime extra roots persisted by add_mod_root/remove_mod_root.
+	const PackedStringArray extra = _ml_string_array(
+			ProjectSettings::get_singleton()->get_setting("vortarismodloader/paths/extra_roots", PackedStringArray()));
+	for (int i = 0; i < extra.size(); i++) {
+		if (!out.has(extra[i])) {
+			out.push_back(extra[i]);
 		}
 	}
 	return out;
@@ -2179,23 +2213,34 @@ bool VMLModLoader::add_mod_root(const String &p_path) {
 	if (p_path.is_empty()) {
 		return false;
 	}
-	PackedStringArray roots = mod_roots();
+	// Already a scanned root (one of the two configured dirs, a legacy array entry,
+	// or a previously added extra root) — nothing to persist.
+	const PackedStringArray roots = mod_roots();
 	if (roots.has(p_path)) {
 		return true;
 	}
-	roots.push_back(p_path);
-	ProjectSettings::get_singleton()->set_setting("vortarismodloader/paths/mod_paths", roots);
+	// Persist runtime-added roots separately (vortarismodloader/paths/extra_roots) so
+	// the configured mod_dir/unpacked_dir stay authoritative; mod_roots() merges them.
+	PackedStringArray extra = _ml_string_array(
+			ProjectSettings::get_singleton()->get_setting("vortarismodloader/paths/extra_roots", PackedStringArray()));
+	if (!extra.has(p_path)) {
+		extra.push_back(p_path);
+		ProjectSettings::get_singleton()->set_setting("vortarismodloader/paths/extra_roots", extra);
+	}
 	return true;
 }
 
 bool VMLModLoader::remove_mod_root(const String &p_path) {
-	PackedStringArray roots = mod_roots();
-	const int idx = roots.find(p_path);
+	PackedStringArray extra = _ml_string_array(
+			ProjectSettings::get_singleton()->get_setting("vortarismodloader/paths/extra_roots", PackedStringArray()));
+	const int idx = extra.find(p_path);
 	if (idx < 0) {
+		// Not a runtime extra root. The configured dirs (mod_dir/unpacked_dir) and
+		// legacy array entries are not removable through the runtime API.
 		return false;
 	}
-	roots.remove_at(idx);
-	ProjectSettings::get_singleton()->set_setting("vortarismodloader/paths/mod_paths", roots);
+	extra.remove_at(idx);
+	ProjectSettings::get_singleton()->set_setting("vortarismodloader/paths/extra_roots", extra);
 	return true;
 }
 

@@ -249,7 +249,9 @@ public:
 	/// Set vortarismodloader/export/export_mods ("embedded"/"external"/"none") and
 	/// vortarismodloader/paths/scan_user_mods, persisted to ProjectSettings.
 	bool set_export_policy(const String &p_mode, bool p_scan_user);
-	/// Configured mod root directories (vortarismodloader/paths/mod_paths).
+	/// Configured mod root directories — the two per-dir settings
+	/// (vortarismodloader/paths/mod_dir + unpacked_dir) composed with legacy
+	/// mod_paths array entries and runtime extra roots.
 	PackedStringArray get_mod_roots() const;
 	bool add_mod_root(const String &p_path);
 	bool remove_mod_root(const String &p_path);
@@ -358,7 +360,8 @@ private:
 	Variant provider_value(const vortarismodloader::ProviderEntry &p_e) const;
 	/// Configured (or default) project-level registry path.
 	String registry_path() const;
-	/// Configured mod root directories (vortarismodloader/paths/mod_paths).
+	/// Configured mod root directories — mod_dir + unpacked_dir composed with the
+	/// legacy mod_paths array (0.3.0/0.3.1) and runtime extra roots (0.3.2).
 	PackedStringArray mod_roots() const;
 	/// Runtime dependency/incompatibility/version re-check before an enable.
 	bool runtime_deps_ok(ModRecord &p_rec, std::vector<String> &r_reason) const;

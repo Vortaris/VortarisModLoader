@@ -73,7 +73,7 @@ var dmg: float = VML.invoke_hook("game:modify_damage", [10.0], 10.0)  # 钩子
 - **`get_mod_errors` 与 `get_mod_report`/`get_errors_summary`**：`get_mod_errors` 仍只含 errors。要含 warnings 用 `get_mod_report(id)`；一次拿全部问题 mod 用 `get_errors_summary()`；`get_startup_report()` 给启动聚合。
 - **`get_all` 新语义**：现返回注册表 id 与已加载数据库 id 的并集（值惰性解析）。结构 `{ canonical_id: value }` 不变。
 - **`set_data` 持久化**：`set_data(id, value, true)` 将值作为项目级 `__registry__` 条目（优先级 0，mod 可覆盖）持久化。注册表默认路径改为 `res://vml/registry.json`（`vortarismodloader/paths/registry_path` 可配置），res:// 只读（导出）时回退 `user://vml/registry.json`。
-- **自定义 mod 根**：mod 从 `vortarismodloader/paths/mod_paths`（默认 `["res://mods-unpacked", "user://vml/mods"]`）扫描。运行时用 `add_mod_root`/`remove_mod_root` 增删；`rescan()` 尊重自定义根。
+- **自定义 mod 根**：mod 从两个独立目录设置扫描——`vortarismodloader/paths/mod_dir`（默认 `res://mods`）与 `vortarismodloader/paths/unpacked_dir`（默认 `res://mods-unpacked`）。运行时用 `add_mod_root`/`remove_mod_root` 增删额外根；`rescan()` 尊重自定义根。旧版（0.3.0/0.3.1）`vortarismodloader/paths/mod_paths` / `vortarismodloader/mod_paths` 数组仍会合并读取，保证升级兼容。
 - **导出策略**：`vortarismodloader/export/export_mods`（`embedded`/`external`/`none`）+ `vortarismodloader/paths/scan_user_mods` 控制扫描范围；`get_mod_package_plan()` 查询、`set_export_policy()` 设置。
 
 ## 文档

@@ -17,12 +17,16 @@ installs them, and how to configure scanning for your export.
 
 ## Where mods live
 
-Default mod roots (`vortarismodloader/paths/mod_paths`):
+Default mod roots — two per-directory settings compose the scan roots (0.3.2):
 
 ```
-res://mods            # .pck packs + zip-installed mods (dev writable)
-res://mods-unpacked   # unpacked dev mod folders
+vortarismodloader/paths/mod_dir        = "res://mods"          # .pck packs + zip-installed mods (dev writable)
+vortarismodloader/paths/unpacked_dir   = "res://mods-unpacked" # unpacked dev mod folders
 ```
+
+(`VML.get_mod_roots()` returns the composed list. Legacy 0.3.0/0.3.1
+`vortarismodloader/paths/mod_paths` / `vortarismodloader/mod_paths` array entries
+are still read and merged, so an existing project keeps its custom roots.)
 
 A `.pck` found under any configured root is mounted read-only at startup. Its
 internal content must be namespaced under `mods/<mod_id>/` so it appears at
@@ -64,13 +68,18 @@ from the `mods/<mod_id>/` folder name.
 
 | Project setting | Values | Meaning |
 |---|---|---|
-| `vortarismodloader/paths/mod_paths` | PackedStringArray | Root directories scanned for mods and `.pck` packs. Default `["res://mods", "res://mods-unpacked"]`. |
+| `vortarismodloader/paths/mod_dir` | String dir (default `res://mods`) | Dev mod main directory: `.pck` packs + zip-installed mods are scanned here. |
+| `vortarismodloader/paths/unpacked_dir` | String dir (default `res://mods-unpacked`) | Legacy unpacked dev mod folder, scanned too. |
+| `vortarismodloader/paths/extra_roots` | PackedStringArray (runtime) | Extra roots added with `add_mod_root()`; not shown in the editor, merged by `get_mod_roots()`. Legacy `paths/mod_paths` / `vortarismodloader/mod_paths` arrays are also still merged. |
 | `vortarismodloader/paths/scan_user_mods` | bool (default true) | When false, non-res:// roots are **not** scanned at boot. |
 | `vortarismodloader/export/export_mods` | `"embedded"` / `"external"` / `"none"` | `embedded` (default): scan res:// roots too. `external`: only user/custom roots. `none`: no scanning at all. |
 | `vortarismodloader/general/validate_on_startup` | bool (default true) | Validate mods at startup; problems are marked but never refuse to boot. |
-| `vortarismodloader/paths/registry_path` | String | Project-level registry file. Default `res://vml/registry.json`; falls back to `user://vml/registry.json` when res:// is read-only (exports). |
+| `vortarismodloader/paths/registry_path` | String path (default `res://vml/registry.json`) | Project-level registry file; falls back to `user://vml/registry.json` when res:// is read-only (exports). |
 | `vortarismodloader/general/show_error_dialogs` | bool (default false) | Show a modal dialog listing mod errors at startup/rescan (non-headless only). Errors are always printed to the console. |
 | `vortarismodloader/general/debug_output` | bool (default false) | Advanced `[vortarismodloader][dbg]` logging (scan, registry, hooks, data, packs). |
+| `vortarismodloader/general/verbose` | bool (default false) | Detailed load logging. |
+| `vortarismodloader/general/auto_finish_startup` | bool (default false) | Auto-run `finish_startup()` once the scene tree is ready. |
+| `vortarismodloader/general/database_mode` | `"data"` / `"all"` / `"off"` (default `"data"`) | How much content is preloaded into the content database. |
 
 ## Embedded vs external mods
 
@@ -92,5 +101,5 @@ VML.add_mod_root("user://my_mods")
 VML.rescan()
 ```
 
-Roots are persisted to ProjectSettings (`vortarismodloader/paths/mod_paths`), so
+Roots are persisted to ProjectSettings (`vortarismodloader/paths/extra_roots`), so
 `rescan()` (and the next boot) pick them up. Remove with `VML.remove_mod_root()`.

@@ -172,9 +172,12 @@ See [docs/mod_format.md](docs/mod_format.md).
   registry now defaults to `res://vml/registry.json`
   (`vortarismodloader/paths/registry_path`), falling back to `user://vml/registry.json`
   in read-only exports.
-- **Custom mod roots**: mods are scanned from `vortarismodloader/paths/mod_paths`
-  (default `["res://mods", "res://mods-unpacked"]`). Add/remove roots at
-  runtime with `add_mod_root`/`remove_mod_root`; `rescan()` respects them.
+- **Custom mod roots**: mods are scanned from two per-directory project settings,
+  `vortarismodloader/paths/mod_dir` (default `res://mods`) and
+  `vortarismodloader/paths/unpacked_dir` (default `res://mods-unpacked`). Add/remove
+  extra roots at runtime with `add_mod_root`/`remove_mod_root`; `rescan()` respects
+  them. Legacy `vortarismodloader/paths/mod_paths` / `vortarismodloader/mod_paths`
+  array entries (0.3.0/0.3.1) are still merged for compatibility.
 - **Export policy**: `vortarismodloader/export/export_mods`
   (`embedded`/`external`/`none`) + `vortarismodloader/paths/scan_user_mods` control what
   gets scanned; query with `get_mod_package_plan()` and set with

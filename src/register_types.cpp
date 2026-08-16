@@ -8,7 +8,6 @@
 #include <godot_cpp/core/property_info.hpp>
 #include <godot_cpp/godot.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
-#include <godot_cpp/variant/packed_string_array.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/variant.hpp>
 
@@ -20,13 +19,36 @@ using namespace godot;
 
 static Ref<VMLResourceRouter> g_router;
 
-// 0.3.1 project settings, organized under tiered categories (general / paths /
-// export) matching the VortarisCSV/VortarisECS layout:
+// Project settings, organized under tiered categories (general / paths / export)
+// matching the VortarisCSV/VortarisECS layout:
 //
 //   vortarismodloader/general/{verbose,show_error_dialogs,debug_output,
 //                              auto_finish_startup,validate_on_startup,database_mode}
-//   vortarismodloader/paths/{mod_paths,registry_path,scan_user_mods}
+//   vortarismodloader/paths/{mod_dir,unpacked_dir,registry_path,scan_user_mods}
 //   vortarismodloader/export/{export_mods}
+//
+// 0.3.2: the old PackedStringArray `paths/mod_paths` is gone from the editor — it
+// was a poor editing experience AND its prose hint_string was parsed by the editor
+// as the array element TYPE (an unknown name fell back to PROPERTY_HINT_RESOURCE_TYPE,
+// so the array editor tried `ClassDB::get_parent_class("root directories scanned for
+// mods and .pck packs")` → "Cannot get class '<prose>'."). It is replaced by two
+// separate directory settings:
+//
+//   paths/mod_dir        (default "res://mods")        — dev mod main directory
+//   paths/unpacked_dir   (default "res://mods-unpacked") — legacy unpacked directory
+//
+// VMLModLoader::mod_roots() composes the two into the scan roots and still merges
+// the legacy `paths/mod_paths` array (tiered or flat `vortarismodloader/mod_paths`)
+// as a backward-compatible fallback (see vml_mod_loader.cpp). add_mod_root /
+// remove_mod_root / get_mod_roots are unchanged.
+//
+// NOTE on descriptions (Z4): Godot 4.7's `PropertyInfo` has NO tooltip/description
+// field and `add_property_info` cannot attach one. The Project Settings editor
+// tooltip is generated from the property *name* only. `hint_string` is parsed
+// SEMANTICALLY per hint (enum options, path filter, resource class) and must never
+// hold prose — that is exactly the "Cannot get class '<hint_string>'" bug above.
+// Setting descriptions therefore live in the README / RELEASE_NOTES (see the
+// settings table there), and every hint_string below is kept strictly semantic.
 //
 // Registered so they show up in the Project Settings editor with a sensible
 // default; get_ml_setting() (core/vml_settings.h) supplies the default when unset
@@ -36,28 +58,25 @@ static Ref<VMLResourceRouter> g_router;
 static void register_vml_project_settings() {
 	ProjectSettings *ps = ProjectSettings::get_singleton();
 
-	PackedStringArray default_mod_paths;
-	default_mod_paths.push_back("res://mods");
-	default_mod_paths.push_back("res://mods-unpacked");
-
 	struct VMLSettingDef {
 		const char *category;
 		const char *name;
 		Variant::Type type;
 		PropertyHint hint;
-		const char *hint_string;
+		const char *hint_string; // semantic ONLY (see note above) — never prose
 		Variant default_value;
 	};
 	const VMLSettingDef settings[] = {
-		{ "general", "verbose", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "detailed load logging", false },
-		{ "general", "show_error_dialogs", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "show a modal dialog listing mod errors at startup/rescan (non-headless only)", false },
-		{ "general", "debug_output", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "advanced [vortarismodloader][dbg] debug logging (scan, registry, hooks, data, packs)", false },
-		{ "general", "auto_finish_startup", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "auto-run finish_startup() once the scene tree is ready", false },
-		{ "general", "validate_on_startup", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "validate mods at startup; problems are marked but never refuse to boot", true },
+		{ "general", "verbose", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "", false },
+		{ "general", "show_error_dialogs", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "", false },
+		{ "general", "debug_output", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "", false },
+		{ "general", "auto_finish_startup", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "", false },
+		{ "general", "validate_on_startup", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "", true },
 		{ "general", "database_mode", Variant::STRING, PropertyHint::PROPERTY_HINT_ENUM, "data,all,off", "data" },
-		{ "paths", "mod_paths", Variant::PACKED_STRING_ARRAY, PropertyHint::PROPERTY_HINT_NONE, "root directories scanned for mods and .pck packs", default_mod_paths },
-		{ "paths", "registry_path", Variant::STRING, PropertyHint::PROPERTY_HINT_NONE, "project-level registry file (res://vml/registry.json; falls back to user://vml/registry.json in read-only exports)", "res://vml/registry.json" },
-		{ "paths", "scan_user_mods", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "scan non-res:// mod roots at boot", true },
+		{ "paths", "mod_dir", Variant::STRING, PropertyHint::PROPERTY_HINT_DIR, "", "res://mods" },
+		{ "paths", "unpacked_dir", Variant::STRING, PropertyHint::PROPERTY_HINT_DIR, "", "res://mods-unpacked" },
+		{ "paths", "registry_path", Variant::STRING, PropertyHint::PROPERTY_HINT_FILE_PATH, "*.json", "res://vml/registry.json" },
+		{ "paths", "scan_user_mods", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "", true },
 		{ "export", "export_mods", Variant::STRING, PropertyHint::PROPERTY_HINT_ENUM, "embedded,external,none", "embedded" },
 	};
 	for (const VMLSettingDef &s : settings) {

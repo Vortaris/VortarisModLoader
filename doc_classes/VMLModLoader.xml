@@ -531,9 +531,9 @@
 		</method>
 		<method name="get_mod_roots" qualifiers="const">
 			<return type="PackedStringArray" />
-			<description>Configured mod root directories (vortarismodloader/paths/mod_paths; default ["res://mods", "res://mods-unpacked"]). `.pck` files under a root are mounted read-only at startup.
+			<description>Configured mod root directories — the two per-directory settings vortarismodloader/paths/mod_dir (default "res://mods") and vortarismodloader/paths/unpacked_dir (default "res://mods-unpacked") composed with legacy `mod_paths` array entries and runtime extra roots (add_mod_root/remove_mod_root). `.pck` files under a root are mounted read-only at startup.
 
-			 已配置的 mod 根目录（vortarismodloader/paths/mod_paths；默认 ["res://mods", "res://mods-unpacked"]）。根目录下的 `.pck` 文件会在启动时以只读方式挂载。</description>
+			 已配置的 mod 根目录——由 vortarismodloader/paths/mod_dir（默认 "res://mods"）与 vortarismodloader/paths/unpacked_dir（默认 "res://mods-unpacked"）两个目录设置合成，并合并旧版 `mod_paths` 数组条目与运行时附加根（add_mod_root/remove_mod_root）。根目录下的 `.pck` 文件会在启动时以只读方式挂载。</description>
 		</method>
 		<method name="install_root">
 			<return type="String" />

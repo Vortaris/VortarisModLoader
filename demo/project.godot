@@ -23,3 +23,17 @@ window/size/viewport_height=720
 [editor_plugins]
 
 enabled=PackedStringArray("res://addons/vortarismodloader/plugin.cfg")
+
+[vortarismodloader]
+
+general/verbose=false
+general/show_error_dialogs=false
+general/debug_output=false
+general/auto_finish_startup=false
+general/validate_on_startup=true
+general/database_mode="data"
+paths/mod_dir="res://mods"
+paths/unpacked_dir="res://mods-unpacked"
+paths/registry_path="res://vml/registry.json"
+paths/scan_user_mods=true
+export/export_mods="embedded"

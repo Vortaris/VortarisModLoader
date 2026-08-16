@@ -1617,9 +1617,10 @@ func _initialize() -> void:
 	l1_panel.free()
 	m1_screen.free()
 
-	# --- 0.3.1 P1: tiered project settings — default read + registration ---
-	# The tiered keys are auto-registered at extension load, so they exist and read
-	# their documented defaults through the new path directly.
+	# --- 0.3.2 P1: two per-dir path settings compose the scan roots (Z1) ---
+	# The PackedStringArray paths/mod_paths is gone from the editor; the scan roots
+	# now come from paths/mod_dir + paths/unpacked_dir (still exposed unchanged
+	# through get_mod_roots / add_mod_root / remove_mod_root).
 	if not VMLTestUtil.expect(
 			ProjectSettings.get_setting("vortarismodloader/general/debug_output", false) == false,
 			"P1 tiered general/debug_output default false"):
@@ -1641,8 +1642,14 @@ func _initialize() -> void:
 			"P1 tiered general/show_error_dialogs registered"):
 		failed = true
 	if not VMLTestUtil.expect(
-			ProjectSettings.has_setting("vortarismodloader/paths/mod_paths"),
-			"P1 tiered paths/mod_paths registered"):
+			ProjectSettings.has_setting("vortarismodloader/paths/mod_dir")
+			and ProjectSettings.get_setting("vortarismodloader/paths/mod_dir", "") == "res://mods",
+			"P1 paths/mod_dir registered with default res://mods"):
+		failed = true
+	if not VMLTestUtil.expect(
+			ProjectSettings.has_setting("vortarismodloader/paths/unpacked_dir")
+			and ProjectSettings.get_setting("vortarismodloader/paths/unpacked_dir", "") == "res://mods-unpacked",
+			"P1 paths/unpacked_dir registered with default res://mods-unpacked"):
 		failed = true
 	if not VMLTestUtil.expect(
 			ProjectSettings.has_setting("vortarismodloader/paths/registry_path"),
@@ -1652,18 +1659,68 @@ func _initialize() -> void:
 			ProjectSettings.has_setting("vortarismodloader/export/export_mods"),
 			"P1 tiered export/export_mods registered"):
 		failed = true
-
-	# --- 0.3.1 P2: legacy flat path fallback (write old, new-tiered read honors it) ---
-	# mod_roots() reads through vortarismodloader::get_ml_setting(): the tiered
-	# value is still the registered default, so an explicit legacy flat write must
-	# win (backward compat with 0.3.0 project.godot files).
-	var p2_saved_roots: PackedStringArray = VML.get_mod_roots()
-	ProjectSettings.set_setting("vortarismodloader/mod_paths",
-			PackedStringArray(["res://mods", "user://vml/p2_fallback"]))
-	var p2_roots: PackedStringArray = VML.get_mod_roots()
-	if not VMLTestUtil.expect(p2_roots.has("user://vml/p2_fallback"),
-			"P2 legacy flat mod_paths read via tiered path (fallback)"):
+	# mod_roots() composes the two dir settings into the scan roots.
+	var p1_roots: PackedStringArray = VML.get_mod_roots()
+	if not VMLTestUtil.expect(p1_roots.has("res://mods") and p1_roots.has("res://mods-unpacked"),
+			"P1 get_mod_roots() composed from mod_dir + unpacked_dir"):
 		failed = true
-	ProjectSettings.set_setting("vortarismodloader/mod_paths", p2_saved_roots)
+	# Changing the two dir settings changes the composed roots (Z1).
+	var p1_saved_mod_dir: String = ProjectSettings.get_setting("vortarismodloader/paths/mod_dir", "res://mods")
+	var p1_saved_unpacked: String = ProjectSettings.get_setting("vortarismodloader/paths/unpacked_dir", "res://mods-unpacked")
+	ProjectSettings.set_setting("vortarismodloader/paths/mod_dir", "res://p1_mods")
+	ProjectSettings.set_setting("vortarismodloader/paths/unpacked_dir", "res://p1_unpacked")
+	var p1_new: PackedStringArray = VML.get_mod_roots()
+	if not VMLTestUtil.expect(
+			p1_new.has("res://p1_mods") and p1_new.has("res://p1_unpacked") and not p1_new.has("res://mods"),
+			"P1 editing mod_dir/unpacked_dir re-composes the scan roots"):
+		failed = true
+	ProjectSettings.set_setting("vortarismodloader/paths/mod_dir", p1_saved_mod_dir)
+	ProjectSettings.set_setting("vortarismodloader/paths/unpacked_dir", p1_saved_unpacked)
+
+	# --- 0.3.2 P2: path settings get the right editor hints (Z2) ---
+	# PROPERTY_HINT_DIR=14, PROPERTY_HINT_ENUM=2, PROPERTY_HINT_FILE_PATH=44.
+	# A prose hint_string on an array/path hint is what caused the editor
+	# "Cannot get class '<prose>'" error — every hint_string is now semantic.
+	var p2_props: Array = ProjectSettings.get_property_list()
+	var p2_info := {}
+	for p2_p in p2_props:
+		if p2_p is Dictionary and String(p2_p["name"]).begins_with("vortarismodloader/"):
+			p2_info[p2_p["name"]] = p2_p
+	var p2_mod_dir_hint: int = p2_info.get("vortarismodloader/paths/mod_dir", {}).get("hint", -1)
+	if not VMLTestUtil.expect(p2_mod_dir_hint == 14, "P2 mod_dir hint is PROPERTY_HINT_DIR"):
+		failed = true
+	var p2_unpacked_hint: int = p2_info.get("vortarismodloader/paths/unpacked_dir", {}).get("hint", -1)
+	if not VMLTestUtil.expect(p2_unpacked_hint == 14, "P2 unpacked_dir hint is PROPERTY_HINT_DIR"):
+		failed = true
+	var p2_registry_hint: int = p2_info.get("vortarismodloader/paths/registry_path", {}).get("hint", -1)
+	if not VMLTestUtil.expect(p2_registry_hint == 44, "P2 registry_path hint is PROPERTY_HINT_FILE_PATH"):
+		failed = true
+	var p2_export_hint: int = p2_info.get("vortarismodloader/export/export_mods", {}).get("hint", -1)
+	if not VMLTestUtil.expect(p2_export_hint == 2, "P2 export_mods hint is PROPERTY_HINT_ENUM"):
+		failed = true
+	# The old array setting is no longer registered in the editor (no array input).
+	if not VMLTestUtil.expect(not p2_info.has("vortarismodloader/paths/mod_paths"),
+			"P2 legacy paths/mod_paths no longer a registered editor setting"):
+		failed = true
+
+	# --- 0.3.2 P3: legacy flat mod_paths fallback (0.3.0 project.godot) ---
+	var p3_saved_flat: Variant = ProjectSettings.get_setting("vortarismodloader/mod_paths", null)
+	ProjectSettings.set_setting("vortarismodloader/mod_paths",
+			PackedStringArray(["res://mods", "user://vml/p3_fallback"]))
+	var p3_roots: PackedStringArray = VML.get_mod_roots()
+	if not VMLTestUtil.expect(p3_roots.has("user://vml/p3_fallback"),
+			"P3 legacy flat mod_paths merged into scan roots (fallback)"):
+		failed = true
+	ProjectSettings.set_setting("vortarismodloader/mod_paths", p3_saved_flat)
+
+	# --- 0.3.2 P4: legacy tiered paths/mod_paths array entries are merged (Z1 compat) ---
+	ProjectSettings.set_setting("vortarismodloader/paths/mod_paths",
+			PackedStringArray(["res://mods", "user://vml/p4_legacy"]))
+	var p4_roots: PackedStringArray = VML.get_mod_roots()
+	if not VMLTestUtil.expect(p4_roots.has("user://vml/p4_legacy"),
+			"P4 legacy tiered mod_paths array entries merged into scan roots"):
+		failed = true
+	ProjectSettings.set_setting("vortarismodloader/paths/mod_paths",
+			PackedStringArray(["res://mods", "res://mods-unpacked"]))
 
 	quit(1 if failed else 0)
