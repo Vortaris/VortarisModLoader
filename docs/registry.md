@@ -73,6 +73,11 @@ var hp: int = VML.get_data("mygame:start_health")
   `{ path | value, type, description, placeholder: true }`.
 - **Mod overrides**: a mod shipping the same id (any priority > 0) beats the
   placeholder default, exactly like any other registry entry.
+- **Exports**: image placeholders resolve `res://` defaults through
+  `ResourceLoader` (returning the imported `CompressedTexture2D`), so they keep
+  working inside an exported `.pck` — raw `Image::load_from_file` cannot read the
+  imported `.ctex` in a pack. `user://` mod images (no import cache) still load
+  as a raw `ImageTexture`.
 
 ## Editor: "VML IDs" panel
 

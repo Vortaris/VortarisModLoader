@@ -178,6 +178,13 @@
 
 			 id 的逻辑类型标签（未打标签则为 ""）。</description>
 		</method>
+		<method name="get_ids_of_type" qualifiers="const">
+			<return type="PackedStringArray" />
+			<param index="0" name="type" type="String" />
+			<description>Ids whose dotted path begins with `type.` in every namespace, sorted — the convention-based counterpart of [method list_ids_by_type] (which filters by an explicit type tag). E.g. `"cards"` returns every `ns:cards.xxx` id across all namespaces, so mods/games can enumerate "all cards" without manual `list_namespaces()` + `get_all(ns + ":")` plumbing.
+
+			 按点分隔路径以 `type.` 开头的 id（跨所有命名空间），排序——[method list_ids_by_type]（按显式类型标签过滤）的约定式对应。如 `"cards"` 返回所有 `ns:cards.xxx` id，免去手动 `list_namespaces()` + `get_all(ns + ":")` 拼接。</description>
+		</method>
 		<method name="list_ids_by_type" qualifiers="const">
 			<return type="PackedStringArray" />
 			<param index="0" name="type" type="String" />
@@ -224,6 +231,13 @@
 
 			 所有注册表 id 与已加载数据库 id 的并集，格式 { canonical_id: value }。值经 [method get_data] 惰性解析（无提供者的仅预留 id 不含值、被跳过）。</description>
 		</method>
+		<method name="get_all_of_type" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="type" type="String" />
+			<description>{ canonical_id: value } for every id whose dotted path begins with `type.`, aggregated across all namespaces — e.g. `"units"` yields every `ns:units.xxx` id (see [method get_ids_of_type]). Includes database-only entries.
+
+			 按点分隔路径以 `type.` 开头的全部 id 的 { canonical_id: value }，跨所有命名空间聚合——如 `"units"` 得到所有 `ns:units.xxx` id（见 [method get_ids_of_type]）。含仅数据库条目。</description>
+		</method>
 		<method name="set_data">
 			<return type="bool" />
 			<param index="0" name="id" type="String" />
@@ -232,6 +246,15 @@
 			<description>Overwrite a database entry in place (emits [signal database_entry_changed]). When `persist` is true, the value is also stored as a project-level `__registry__` value provider (priority 0, so mods override it) and the registry is saved to [method save_registry].
 
 			 原地改写一条数据库条目（发射 [signal database_entry_changed]）。`persist` 为 true 时，该值还会作为项目级 `__registry__` 值提供者（优先级 0，mod 可覆盖）存储，并保存注册表到 [method save_registry]。</description>
+		</method>
+		<method name="patch_data">
+			<return type="bool" />
+			<param index="0" name="id" type="String" />
+			<param index="1" name="patch" type="Dictionary" />
+			<param index="2" name="persist" type="bool" default="false" />
+			<description>Field-level merge into an existing id's data: only the keys present in `patch` are updated, so a mod can override a card by writing just the fields it changes. The merge is shallow — a nested Dictionary or Array value in `patch` replaces the whole existing value, it is not merged recursively. When the id has no Dictionary value (or does not exist yet) it behaves exactly like [method set_data]. Emits [signal database_entry_changed].
+
+			 对已存在 id 的数据做字段级合并：只更新 `patch` 里出现的字段，mod 只需写要改的字段即可覆盖卡片。合并且是浅合并——`patch` 里的嵌套 Dictionary/Array 值整体替换旧值，不做递归合并。当 id 没有 Dictionary 值（或尚不存在）时等价 [method set_data]。发射 [signal database_entry_changed]。</description>
 		</method>
 		<method name="delete_data">
 			<return type="bool" />
@@ -344,6 +367,13 @@
 			<description>Declared hook points as { hook_id: { description, arg_types } }.
 
 			 已声明钩子点，格式 { hook_id: { description, arg_types } }。</description>
+		</method>
+		<method name="list_unmatched_hooks" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="prefix" type="String" default="&quot;&quot;" />
+			<description>Hook contract drift as { undeclared: PackedStringArray, unhandled: PackedStringArray }. `undeclared` = hooks with handlers registered via [method add_hook] but no [method register_hook_point] declaration; `unhandled` = declared hook points with zero handlers. A plugin cannot know whether the game ever fires a hook, so this reports the *declarative* contract: declared points vs the handlers attached to them. Use [method get_hook_contract_health] for aggregate counts.
+
+			 钩子契约漂移 { undeclared: PackedStringArray, unhandled: PackedStringArray }。`undeclared` = 经 [method add_hook] 注册了 handler 但没有 [method register_hook_point] 声明的钩子；`unhandled` = 声明了钩子点但没有任何 handler。插件无法得知游戏是否实际发射某钩子，故本方法报告*声明层*契约：声明的点与挂在它们上面的 handler。聚合计数用 [method get_hook_contract_health]。</description>
 		</method>
 		<method name="list_hook_handlers" qualifiers="const">
 			<return type="Array" />
@@ -560,6 +590,12 @@
 			<description>Human-readable startup error summary ("&lt;mod&gt;: &lt;err&gt;" lines, one per error, empty when clean). This is what is printed to the console (and shown in the error dialog) after a scan/finish_startup when `vortarismodloader/general/show_error_dialogs` is on.
 
 			 人类可读的启动错误摘要（每行 "&lt;mod&gt;: &lt;err&gt;"，无错误时为空）。扫描/finish_startup 后打印到控制台（`vortarismodloader/general/show_error_dialogs` 开启时显示在错误弹窗中）的内容。</description>
+		</method>
+		<method name="get_hook_contract_health" qualifiers="const">
+			<return type="Dictionary" />
+			<description>Aggregate hook-contract health as { declared, active, unhandled, undeclared, healthy } where `healthy` is true when every declared hook point has at least one handler and every handler has a declaration. Drift in either direction usually means the game renamed/removed a hook point without the mod handlers following, or a mod listens to a hook the game never declares. See [method list_unmatched_hooks] for the concrete ids.
+
+			 钩子契约健康度聚合 { declared, active, unhandled, undeclared, healthy }，其中 `healthy` 为 true 表示每个已声明钩子点至少有一个 handler、且每个 handler 都有声明。任一方向的漂移通常意味着游戏重命名/移除了钩子点而 mod handler 未跟随，或 mod 监听了游戏从未声明的钩子。具体 id 见 [method list_unmatched_hooks]。</description>
 		</method>
 		<method name="get_debug_log" qualifiers="const">
 			<return type="PackedStringArray" />

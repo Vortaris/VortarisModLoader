@@ -500,6 +500,23 @@ func _refresh_hooks() -> void:
 	if root.get_child_count() == 0:
 		var empty := _hook_tree.create_item(root)
 		empty.set_text(0, "(no hooks registered by this mod)")
+	# Contract health: declared hook points vs actual handlers, project-wide. Drift
+	# in either direction (a handler with no register_hook_point declaration, or a
+	# declared point with no handler) usually means the game renamed/removed a hook
+	# point without the mod handlers following — or a mod listens to a hook the game
+	# never declares.
+	var health: Dictionary = VML.get_hook_contract_health()
+	var health_line := "hook contract: %d declared / %d active" % [
+			int(health.get("declared", 0)), int(health.get("active", 0))]
+	if not health.get("healthy", true):
+		health_line += "  MISMATCH: %d undeclared / %d unhandled" % [
+				int(health.get("undeclared", 0)), int(health.get("unhandled", 0))]
+	var health_item := _hook_tree.create_item(root)
+	health_item.set_text(0, health_line)
+	health_item.set_text(1, "")
+	health_item.set_text(2, "")
+	health_item.set_text(3, "")
+	health_item.set_selectable(0, false)
 
 
 func _refresh_content() -> void:

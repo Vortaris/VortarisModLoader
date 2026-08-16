@@ -611,6 +611,93 @@ Dictionary VMLModLoader::get_all(const String &p_prefix) const {
 	return out;
 }
 
+PackedStringArray VMLModLoader::get_ids_of_type(const String &p_type) const {
+	PackedStringArray out;
+	const String prefix = p_type + String(".");
+	for (const vortarismodloader::ResourceId &id : registry_.all_ids()) {
+		if (id.path.begins_with(prefix)) {
+			out.push_back(id.canonical());
+		}
+	}
+	// Database-only entries (set_data without a provider) participate too.
+	for (const vortarismodloader::ResourceId &id : database_.loaded_ids()) {
+		if (!id.path.begins_with(prefix)) {
+			continue;
+		}
+		const String canonical = id.canonical();
+		if (!out.has(canonical)) {
+			out.push_back(canonical);
+		}
+	}
+	out.sort();
+	return out;
+}
+
+Dictionary VMLModLoader::get_all_of_type(const String &p_type) const {
+	Dictionary out;
+	const String prefix = p_type + String(".");
+	for (const vortarismodloader::ResourceId &id : registry_.all_ids()) {
+		if (!id.path.begins_with(prefix)) {
+			continue;
+		}
+		const String canonical = id.canonical();
+		Variant v;
+		if (database_.get(id, v)) {
+			out[canonical] = v;
+			continue;
+		}
+		const vortarismodloader::ProviderEntry *e = registry_.lookup(id);
+		if (e == nullptr) {
+			continue;
+		}
+		out[canonical] = provider_value(*e);
+	}
+	// Database-only entries.
+	for (const vortarismodloader::ResourceId &id : database_.loaded_ids()) {
+		if (!id.path.begins_with(prefix)) {
+			continue;
+		}
+		const String canonical = id.canonical();
+		if (out.has(canonical)) {
+			continue;
+		}
+		Variant v;
+		if (database_.get(id, v)) {
+			out[canonical] = v;
+		}
+	}
+	return out;
+}
+
+bool VMLModLoader::patch_data(const String &p_id, const Dictionary &p_patch, bool p_persist) {
+	vortarismodloader::ResourceId rid;
+	if (!vortarismodloader::ResourceId::parse(p_id, rid)) {
+		ERR_PRINT(String("VML: invalid id '") + p_id + String("'"));
+		return false;
+	}
+	// Read the current value like get_data does, but without erroring on a missing
+	// id — a patch on a nonexistent id must behave exactly like set_data (creating
+	// the entry), not log "unknown id".
+	Variant current;
+	if (database_mode_ != DatabaseMode::OFF) {
+		database_.get(rid, current);
+	}
+	if (current.get_type() == Variant::NIL) {
+		const vortarismodloader::ProviderEntry *e = registry_.lookup(rid);
+		if (e != nullptr) {
+			current = provider_value(*e);
+		}
+	}
+	Dictionary merged;
+	if (current.get_type() == Variant::DICTIONARY) {
+		merged = Dictionary(current);
+	}
+	for (const Variant &key : p_patch.keys()) {
+		merged[key] = p_patch[key];
+	}
+	return set_data(p_id, merged, p_persist);
+}
+
 bool VMLModLoader::set_data(const String &p_id, const Variant &p_value, bool p_persist) {
 	vortarismodloader::ResourceId rid;
 	if (!vortarismodloader::ResourceId::parse(p_id, rid)) {
@@ -2671,6 +2758,69 @@ Array VMLModLoader::list_hook_handlers(const String &p_hook_id) const {
 	return out;
 }
 
+bool VMLModLoader::is_hook_point_declared(const vortarismodloader::ResourceId &p_hook_id) const {
+	for (const HookPoint &hp : hook_points_) {
+		if (hp.id == p_hook_id) {
+			return true;
+		}
+	}
+	return false;
+}
+
+Dictionary VMLModLoader::list_unmatched_hooks(const String &p_prefix) const {
+	Dictionary out;
+	PackedStringArray undeclared; // handlers registered, but no register_hook_point declaration
+	PackedStringArray unhandled; // declared hook points with zero handlers
+	for (const vortarismodloader::ResourceId &id : hooks_.all_hooks()) {
+		const String canonical = id.canonical();
+		if (!p_prefix.is_empty() && !canonical.begins_with(p_prefix)) {
+			continue;
+		}
+		if (!is_hook_point_declared(id)) {
+			undeclared.push_back(canonical);
+		}
+	}
+	for (const HookPoint &hp : hook_points_) {
+		const String canonical = hp.id.canonical();
+		if (!p_prefix.is_empty() && !canonical.begins_with(p_prefix)) {
+			continue;
+		}
+		if (hooks_.handler_count(hp.id) == 0) {
+			unhandled.push_back(canonical);
+		}
+	}
+	undeclared.sort();
+	unhandled.sort();
+	out["undeclared"] = undeclared;
+	out["unhandled"] = unhandled;
+	return out;
+}
+
+Dictionary VMLModLoader::get_hook_contract_health() const {
+	Dictionary out;
+	int declared = (int)hook_points_.size();
+	int active = 0;
+	int unhandled = 0;
+	int undeclared = 0;
+	for (const vortarismodloader::ResourceId &id : hooks_.all_hooks()) {
+		active++;
+		if (!is_hook_point_declared(id)) {
+			undeclared++;
+		}
+	}
+	for (const HookPoint &hp : hook_points_) {
+		if (hooks_.handler_count(hp.id) == 0) {
+			unhandled++;
+		}
+	}
+	out["declared"] = declared;
+	out["active"] = active;
+	out["unhandled"] = unhandled;
+	out["undeclared"] = undeclared;
+	out["healthy"] = (unhandled == 0 && undeclared == 0);
+	return out;
+}
+
 Dictionary VMLModLoader::list_providers(const String &p_id) const {
 	Dictionary out;
 	vortarismodloader::ResourceId rid;
@@ -2720,7 +2870,11 @@ void VMLModLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("preload_database"), &VMLModLoader::preload_database);
 	ClassDB::bind_method(D_METHOD("reload_database"), &VMLModLoader::reload_database);
 	ClassDB::bind_method(D_METHOD("get_all", "prefix"), &VMLModLoader::get_all, DEFVAL(""));
+	ClassDB::bind_method(D_METHOD("get_ids_of_type", "type"), &VMLModLoader::get_ids_of_type);
+	ClassDB::bind_method(D_METHOD("get_all_of_type", "type"), &VMLModLoader::get_all_of_type);
 	ClassDB::bind_method(D_METHOD("set_data", "id", "value", "persist"), &VMLModLoader::set_data, DEFVAL(false));
+	ClassDB::bind_method(D_METHOD("patch_data", "id", "patch", "persist"), &VMLModLoader::patch_data,
+			DEFVAL(false));
 	ClassDB::bind_method(D_METHOD("delete_data", "id"), &VMLModLoader::delete_data);
 	ClassDB::bind_method(D_METHOD("get_database_mode"), &VMLModLoader::get_database_mode);
 	ClassDB::bind_method(D_METHOD("set_database_mode", "mode"), &VMLModLoader::set_database_mode);
@@ -2776,6 +2930,9 @@ void VMLModLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("list_hooks", "prefix"), &VMLModLoader::list_hooks, DEFVAL(""));
 	ClassDB::bind_method(D_METHOD("list_hook_points", "prefix"), &VMLModLoader::list_hook_points, DEFVAL(""));
 	ClassDB::bind_method(D_METHOD("list_hook_handlers", "hook_id"), &VMLModLoader::list_hook_handlers);
+	ClassDB::bind_method(D_METHOD("list_unmatched_hooks", "prefix"), &VMLModLoader::list_unmatched_hooks,
+			DEFVAL(""));
+	ClassDB::bind_method(D_METHOD("get_hook_contract_health"), &VMLModLoader::get_hook_contract_health);
 	ClassDB::bind_method(D_METHOD("list_providers", "id"), &VMLModLoader::list_providers);
 
 	ClassDB::bind_method(D_METHOD("is_mod_enabled", "mod_id"), &VMLModLoader::is_mod_enabled);

@@ -20,9 +20,15 @@ all data) and traditional games alike (texture/model/scene overrides).
   at `assets/<ns>/<path>.<ext>` / `data/<ns>/<path>.<ext>` and it gets id `ns:path`.
 - **Unified content database** (optional): preload all data into an in-memory
   repository at startup for O(1) id lookups; batched async preload
-  (`preload_database_async`); `set_data`/`delete_data` rewrite live.
+  (`preload_database_async`); `set_data`/`delete_data` rewrite live;
+  `get_ids_of_type("cards")` / `get_all_of_type("cards")` enumerate every
+  `ns:cards.*` id across all namespaces without manual prefix plumbing;
+  `patch_data(id, {"hp": 999})` does a shallow field-level merge so a mod
+  overrides just the fields it changes.
 - **Declarative hooks**: hook points are ids; `invoke_hook` (chain rewrite),
   `emit_hook` (broadcast), `check_hook` (predicate). No regex source rewriting.
+  `get_hook_contract_health()` / `list_unmatched_hooks()` surface contract drift —
+  handlers with no declared hook point, or declared points with no handler.
 - **Override arbitration**: later-loaded mods win; deterministic
   (priority + explicit flag + mod id). `extra.godot.id_overrides` in the manifest
   maps a file to an explicit id, beating path inference.
@@ -147,6 +153,31 @@ See [docs/mod_format.md](docs/mod_format.md).
   at `finish_startup`, overridden by any mod. The VML IDs panel has a
   "New Placeholder" button + Placeholders tab. See
   [docs/registry.md](docs/registry.md).
+
+## What's new in 0.3.3
+
+- **Type queries**: `VML.get_ids_of_type("cards")` returns every `ns:cards.*` id
+  across all namespaces; `VML.get_all_of_type("cards")` returns
+  `{ id: data }` for them. No more `list_namespaces()` + `get_all(ns + ":")`
+  plumbing to enumerate all cards/units/items.
+- **`patch_data`**: `VML.patch_data("game:cards.knight", {"hp": 999})` does a
+  shallow field-level merge into the existing Dictionary — a mod overrides just
+  the fields it changes. Missing ids behave like `set_data`. Nested Dictionaries /
+  Arrays are replaced wholesale (no recursive merge).
+- **Hook contract health**: `VML.get_hook_contract_health()` returns
+  `{ declared, active, unhandled, undeclared, healthy }`;
+  `VML.list_unmatched_hooks()` lists the concrete ids of handlers with no
+  `register_hook_point` declaration (`undeclared`) and declared points with no
+  handler (`unhandled`). The editor's Hooks tab shows the health line. This flags
+  contract drift (renamed/removed game hook points, mods listening to undeclared
+  hooks) that a plugin can detect — it cannot observe whether the game *fires* a
+  hook, so this checks the declarative contract.
+- **Image placeholders load via `ResourceLoader`**: `set_placeholder(id, "image",
+  path)` and `get_resource(id)` resolve a `res://` image through
+  `ResourceLoader`, returning the imported `CompressedTexture2D`. Raw
+  `Image::load_from_file` cannot read the imported `.ctex` inside an exported
+  `.pck`, so image placeholders broke in distributed builds — now they work.
+  `user://` mod images (no import cache) still fall back to a raw `ImageTexture`.
 
 ## Migrating from 0.2.1
 

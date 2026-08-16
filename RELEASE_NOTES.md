@@ -1,5 +1,48 @@
 # Release Notes
 
+## 0.3.3
+
+CHANT-driven quality-of-life API additions: type queries, field-level data
+patching, hook-contract health checks, and pck-safe image placeholders.
+
+### M1 — Type query convenience
+
+- `VML.get_ids_of_type(type)` — every id whose dotted path begins with
+  `type.` across all namespaces, sorted (e.g. `"cards"` → all `ns:cards.xxx`).
+- `VML.get_all_of_type(type)` — `{ canonical_id: value }` for those ids.
+- Both include database-only entries (`set_data` without a provider) and spare
+  mods/games from `list_namespaces()` + `get_all(ns + ":")` plumbing.
+
+### M2 — Field-level `patch_data`
+
+- `VML.patch_data(id, patch, persist=false)` merges only the keys present in
+  `patch` into the id's existing Dictionary (shallow merge; nested
+  Dictionary/Array values are replaced wholesale, not merged recursively).
+- Missing ids / non-Dictionary values behave exactly like `set_data`. Emits
+  `database_entry_changed`.
+
+### M3 — Hook contract health
+
+- `VML.get_hook_contract_health()` → `{ declared, active, unhandled, undeclared,
+  healthy }`.
+- `VML.list_unmatched_hooks(prefix="")` → `{ undeclared, unhandled }` as
+  `PackedStringArray`s of hook ids.
+- Rationale: a plugin cannot observe whether the game ever *fires* a hook, so
+  this checks the declarative contract — declared points vs the handlers attached
+  to them. Drift in either direction flags renamed/removed game hook points or
+  mods listening to undeclared hooks.
+- Editor: the VML Mods Hooks tab shows a project-wide contract-health line.
+
+### M4 — pck-safe image placeholders
+
+- `set_placeholder(id, "image", path)` / `get_resource(id)` now resolve `res://`
+  images through `ResourceLoader`, returning the imported `CompressedTexture2D`.
+  Raw `Image::load_from_file` cannot read the imported `.ctex` inside an exported
+  `.pck` (the source PNG is stripped from the pack), which broke every image
+  placeholder in distributed builds — CHANT had to wrap `PlaceholderRes`.
+- `user://` mod images (no import cache) still fall back to a raw `ImageTexture`,
+  so dev hot-reload of raw mod assets is unchanged.
+
 ## 0.3.2
 
 Settings usability pass (user-tested): the mod-path setting is no longer an array,

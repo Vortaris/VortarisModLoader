@@ -83,6 +83,30 @@ VML.register_hook_point("game:modify_damage", "Rewrite outgoing damage",
 `VML.list_hook_points()` returns them; `VML.list_hooks()` returns what is
 actually registered (plus which mods registered it).
 
+## Contract health
+
+A plugin cannot observe whether the game ever **fires** a hook, so VML checks the
+**declarative** contract: the hook points declared with `register_hook_point`
+versus the handlers actually attached with `add_hook`. Drift in either direction
+usually means the game renamed/removed a hook point without the mod handlers
+following, or a mod listens to a hook the game never declares.
+
+```gdscript
+var health: Dictionary = VML.get_hook_contract_health()
+# { declared, active, unhandled, undeclared, healthy }
+#   declared   = hook points registered via register_hook_point
+#   active     = hooks that have at least one handler
+#   unhandled  = declared points with zero handlers
+#   undeclared = hooks with handlers but no declaration
+#   healthy    = unhandled == 0 and undeclared == 0
+
+var unmatched: Dictionary = VML.list_unmatched_hooks()
+# { "undeclared": PackedStringArray, "unhandled": PackedStringArray }
+```
+
+`list_unmatched_hooks("game:")` filters by prefix. The editor's Hooks tab shows a
+project-wide health line; mismatch details are available through the API above.
+
 ## Important notes
 
 - Prefer named methods over lambdas when connecting to **VML signals** — a lambda

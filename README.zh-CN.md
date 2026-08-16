@@ -9,8 +9,8 @@
 ## 特性
 
 - **id 索引一切**：`namespace:path` 唯一标识，命名空间防冲突；隐式路径约定——`assets/<ns>/<path>.<ext>` / `data/<ns>/<path>.<ext>` 放文件即得 id `ns:path`，零声明。
-- **统一加载数据库**：可选项，进入游戏时把数据全量预载到内存仓库，id 查询 O(1) 纯内存；支持分批异步预载（`preload_database_async`）；`set_data`/`delete_data` 原地改写，热更可增量刷新。
-- **声明式钩子**：hook 点即 id，三种语义——`invoke_hook`（链式改参数/返回值）、`emit_hook`（广播）、`check_hook`（判定拦截）。无正则源码重写。
+- **统一加载数据库**：可选项，进入游戏时把数据全量预载到内存仓库，id 查询 O(1) 纯内存；支持分批异步预载（`preload_database_async`）；`set_data`/`delete_data` 原地改写，热更可增量刷新。`get_ids_of_type("cards")` / `get_all_of_type("cards")` 按 `ns:cards.*` 前缀跨所有命名空间枚举，免手动拼前缀；`patch_data(id, {"hp": 999})` 做浅层字段级合并，mod 只写要改的字段。
+- **声明式钩子**：hook 点即 id，三种语义——`invoke_hook`（链式改参数/返回值）、`emit_hook`（广播）、`check_hook`（判定拦截）。无正则源码重写。`get_hook_contract_health()` / `list_unmatched_hooks()` 暴露契约漂移——有 handler 但未声明的钩子、声明的点却无 handler。
 - **覆盖仲裁**：后加载的 mod 覆盖先加载者（优先级 + 显式注册 + mod id 兜底，确定性）。
 - **运行时生命周期**：启动早期扫描（早于 autoload）、运行时动态 enable/disable/load/unload 整个 mod、zip 事务性安装。
 - **开发热重载**：mtime+size 轮询，改 mod 文件即时生效（数据/资源刷新 + 信号通知）；`vortarismodloader/general/verbose` 开启详细加载日志。
@@ -64,6 +64,13 @@ var dmg: float = VML.invoke_hook("game:modify_damage", [10.0], 10.0)  # 钩子
 `manifest.json` 关键字段：`namespace`（= mod id，`^[a-z0-9_]{1,32}$`）、`name`、`version_number`（semver）、`dependencies`/`optional_dependencies`（`"lib_mod"` 或 `"lib_mod@>=1.0"`）、`load_before`、`incompatibilities`、`extra.godot.main_script`。详见 [docs/mod_format.md](docs/mod_format.md)。
 
 覆盖基础资源：mod 在自身包内放 `data/game/units/knight.json` 即可覆盖 `game:units.knight`。
+
+## 0.3.3 新增
+
+- **类型查询**：`VML.get_ids_of_type("cards")` 返回所有 `ns:cards.*` id；`VML.get_all_of_type("cards")` 返回 `{ id: 数据 }`。免去 `list_namespaces()` + `get_all(ns + ":")` 手动拼接。
+- **`patch_data`**：`VML.patch_data("game:cards.knight", {"hp": 999})` 对已有 Dictionary 做浅层字段级合并——mod 只写要改的字段。id 不存在时等价 `set_data`。嵌套 Dictionary/Array 整体替换（不做递归合并）。
+- **钩子契约健康**：`VML.get_hook_contract_health()` 返回 `{ declared, active, unhandled, undeclared, healthy }`；`VML.list_unmatched_hooks()` 列出具体 id——有 handler 但未声明 hook 点（`undeclared`）、声明了 hook 点却无 handler（`unhandled`）。编辑器 Hooks 页显示健康行。插件无法观测游戏是否真的发射某钩子，故此项检查的是**声明层**契约（声明的点 vs 挂在上面的 handler），用于发现契约漂移（游戏重命名/移除钩子点、mod 监听未声明的钩子）。
+- **image 占位符走 `ResourceLoader`**：`set_placeholder(id, "image", path)` 与 `get_resource(id)` 对 `res://` 图片经 `ResourceLoader` 解析，返回导入后的 `CompressedTexture2D`。原始的 `Image::load_from_file` 读不了导出 `.pck` 内的 `.ctex` 导入缓存，导致导出版 image 占位符失效——现已在导出版可用。`user://` mod 图片（无导入缓存）仍回退为原始 `ImageTexture`。
 
 ## 从 0.2.1 迁移
 

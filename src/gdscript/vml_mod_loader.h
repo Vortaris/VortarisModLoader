@@ -75,10 +75,24 @@ public:
 	/// { canonical_id: value } for every loaded entry (optionally prefixed).
 	/// Union of registry ids and database ids; values resolved lazily via get_data.
 	Dictionary get_all(const String &p_prefix = "") const;
+	/// Ids whose dotted path begins with `type.` in every namespace, sorted — the
+	/// convention-based counterpart of [method list_ids_by_type] (which filters by
+	/// an explicit type tag). E.g. "cards" -> every `ns:cards.xxx` id across all
+	/// namespaces, no manual `list_namespaces()` + `get_all(ns + ":")` plumbing.
+	PackedStringArray get_ids_of_type(const String &p_type) const;
+	/// { canonical_id: value } for every id whose path begins with `type.`,
+	/// aggregated across all namespaces (see [method get_ids_of_type]).
+	Dictionary get_all_of_type(const String &p_type) const;
 	/// Overwrite a database entry in place. `persist=true` additionally stores the
 	/// value as a `__registry__` value provider (priority 0) and saves the registry
 	/// so it survives restarts (see vortarismodloader/paths/registry_path).
 	bool set_data(const String &p_id, const Variant &p_value, bool p_persist = false);
+	/// Field-level merge into an existing id's data: only the keys present in
+	/// `patch` are updated (top-level Dictionary merge; nested Dictionaries/Arrays
+	/// are replaced wholesale). When the id has no Dictionary value (or does not
+	/// exist) it behaves exactly like [method set_data]. Emits
+	/// [signal database_entry_changed].
+	bool patch_data(const String &p_id, const Dictionary &p_patch, bool p_persist = false);
 	bool delete_data(const String &p_id);
 	String get_database_mode() const;
 	bool set_database_mode(const String &p_mode);
@@ -197,6 +211,17 @@ public:
 	Dictionary list_hook_points(const String &p_prefix = "") const;
 	/// Handlers of a hook in call order as Array of { mod_id, priority }.
 	Array list_hook_handlers(const String &p_hook_id) const;
+	/// Hook contract health: { undeclared: PackedStringArray, unhandled:
+	/// PackedStringArray }. `undeclared` = hooks with handlers registered via
+	/// [method add_hook] but no [method register_hook_point] declaration;
+	/// `unhandled` = declared hook points with zero handlers. Drift in either
+	/// direction usually means a game hook point was renamed/removed without the
+	/// mod handlers following, or a mod listens to a hook the game never declares.
+	Dictionary list_unmatched_hooks(const String &p_prefix = "") const;
+	/// Aggregate contract health: { declared, active, unhandled, undeclared,
+	/// healthy } where `healthy` is true when every declared hook point has at
+	/// least one handler and every handler has a declaration.
+	Dictionary get_hook_contract_health() const;
 	/// Every provider of an id: { providers: [{ mod_id, path, priority, explicit }], best: int }.
 	Dictionary list_providers(const String &p_id) const;
 
@@ -352,6 +377,8 @@ private:
 	/// print a one-time migration notice (see get_legacy_mod_migration_notice).
 	void check_legacy_mods_migration();
 	bool is_reserved(const vortarismodloader::ResourceId &p_id) const;
+	/// Whether `p_hook_id` was declared via [method register_hook_point].
+	bool is_hook_point_declared(const vortarismodloader::ResourceId &p_hook_id) const;
 	String data_type_for(const String &p_path) const;
 	/// Load the value for a provider: json/csv parse to data, everything else is a Resource.
 	Variant load_entry_value(const vortarismodloader::ProviderEntry &p_e) const;

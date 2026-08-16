@@ -142,11 +142,30 @@ godot::Ref<godot::Resource> LoaderBackend::load_raw_asset(const godot::String &p
 
 godot::Ref<godot::Resource> LoaderBackend::load_resource(const godot::String &p_path,
 		godot::ResourceLoader::CacheMode p_mode) {
-	// Raw assets are constructed directly so they work identically under
-	// res:// (imported) and user:// (no import cache) and hot-reload cleanly.
 	const godot::String ext = extension_of(p_path);
-	if (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "webp" || ext == "bmp" || ext == "tga" ||
-			ext == "wav" || ext == "mp3" || ext == "ttf" || ext == "otf") {
+	// Images: prefer the standard ResourceLoader so imported textures resolve to
+	// their CompressedTexture2D. Image::load_from_file does raw file I/O on the
+	// source PNG, which is stripped from exported .pck files (only the imported
+	// .ctex is packed) — so raw loading breaks every image placeholder in a
+	// distributed build. ResourceLoader::load on a res:// path reads the .import
+	// sidecar + .ctex from the pck and works. Mod files under user:// (no import
+	// cache) fall back to direct raw construction, keeping dev hot-reload intact.
+	if (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "webp" || ext == "bmp" || ext == "tga") {
+		if (p_path.begins_with("res://")) {
+			godot::Ref<godot::Resource> res = godot::ResourceLoader::get_singleton()->load(p_path, "", p_mode);
+			if (!res.is_null()) {
+				log_debug(godot::String("loader: resource '") + p_path + godot::String("' -> ") + res->get_class());
+				return res;
+			}
+		}
+		godot::Ref<godot::Resource> raw = load_raw_asset(p_path);
+		if (!raw.is_null()) {
+			return raw;
+		}
+		report_load_failure(godot::String("failed to load image: ") + p_path);
+		return godot::Ref<godot::Resource>();
+	}
+	if (ext == "wav" || ext == "mp3" || ext == "ttf" || ext == "otf") {
 		return load_raw_asset(p_path);
 	}
 	godot::Ref<godot::Resource> res = godot::ResourceLoader::get_singleton()->load(p_path, "", p_mode);

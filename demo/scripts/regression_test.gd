@@ -1723,4 +1723,171 @@ func _initialize() -> void:
 	ProjectSettings.set_setting("vortarismodloader/paths/mod_paths",
 			PackedStringArray(["res://mods", "res://mods-unpacked"]))
 
+	# --- 0.3.3 M1: get_ids_of_type / get_all_of_type aggregate by `type.` prefix ---
+	var m1_units: PackedStringArray = VML.get_ids_of_type("units")
+	if not VMLTestUtil.expect(m1_units.has("game:units.knight")
+			and m1_units.has("game:units.peasant")
+			and m1_units.has("mymod:units.archer"),
+			"M1 get_ids_of_type aggregates units across namespaces"):
+		failed = true
+	if not VMLTestUtil.expect(m1_units.size() == 3, "M1 get_ids_of_type returns all unit ids"):
+		failed = true
+	if not VMLTestUtil.expect(VML.get_ids_of_type("nosuchtype").is_empty(),
+			"M1 get_ids_of_type empty for unknown type"):
+		failed = true
+	var m1_items: PackedStringArray = VML.get_ids_of_type("items")
+	if not VMLTestUtil.expect(m1_items.has("game:items.wood") and m1_items.has("mymod:items.iron"),
+			"M1 get_ids_of_type items across namespaces"):
+		failed = true
+	var m1_units_data: Dictionary = VML.get_all_of_type("units")
+	if not VMLTestUtil.expect(m1_units_data.has("game:units.knight")
+			and m1_units_data.has("game:units.peasant")
+			and m1_units_data.has("mymod:units.archer"),
+			"M1 get_all_of_type keys across namespaces"):
+		failed = true
+	if not VMLTestUtil.expect_eq((m1_units_data.get("game:units.knight") as Dictionary).get("attack"),
+			15, "M1 get_all_of_type value resolves the override"):
+		failed = true
+	if not VMLTestUtil.expect_eq((m1_units_data.get("mymod:units.archer") as Dictionary).get("name"),
+			"Archer", "M1 get_all_of_type value for mod content"):
+		failed = true
+
+	# --- 0.3.3 M2: patch_data field-level merge ---
+	var m2_base: Dictionary = VML.get_data("game:units.knight")
+	if not VMLTestUtil.expect_eq(m2_base.get("attack"), 15, "M2 baseline knight attack"):
+		failed = true
+	if not VMLTestUtil.expect(VML.patch_data("game:units.knight", {"attack": 999}),
+			"M2 patch_data returns true"):
+		failed = true
+	var m2_patched: Dictionary = VML.get_data("game:units.knight")
+	if not VMLTestUtil.expect_eq(m2_patched.get("attack"), 999, "M2 patch updates only the field"):
+		failed = true
+	if not VMLTestUtil.expect_eq(m2_patched.get("name"), m2_base.get("name"),
+			"M2 patch preserves untouched fields"):
+		failed = true
+	if not VMLTestUtil.expect_eq(m2_patched.get("health"), m2_base.get("health"),
+			"M2 patch keeps other numbers intact"):
+		failed = true
+	# Patching a nonexistent id behaves like set_data.
+	if not VMLTestUtil.expect(VML.patch_data("mygame:m2.fresh", {"hp": 10}),
+			"M2 patch on missing id acts like set_data"):
+		failed = true
+	if not VMLTestUtil.expect_eq((VML.get_data("mygame:m2.fresh") as Dictionary).get("hp"), 10,
+			"M2 patched-created entry readable"):
+		failed = true
+	# Nested Dictionary / Array are replaced wholesale (documented simple merge).
+	if not VMLTestUtil.expect(VML.patch_data("mygame:m2.fresh", {"stats": {"atk": 1}, "tags": ["a", "b"]}),
+			"M2 patch nested dict/array"):
+		failed = true
+	var m2_nested: Dictionary = VML.get_data("mygame:m2.fresh")
+	if not VMLTestUtil.expect_eq((m2_nested.get("stats") as Dictionary).get("atk"), 1,
+			"M2 nested dict replaced wholesale"):
+		failed = true
+	if not VMLTestUtil.expect_eq((m2_nested.get("tags") as Array).size(), 2,
+			"M2 array replaced wholesale"):
+		failed = true
+	if not VMLTestUtil.expect_eq(m2_nested.get("hp"), 10, "M2 earlier scalar kept through nested patch"):
+		failed = true
+	# Patching a non-Dictionary value replaces it wholesale.
+	if not VMLTestUtil.expect(VML.set_data("mygame:m2.arr", [1, 2]), "M2 seed array entry"):
+		failed = true
+	if not VMLTestUtil.expect(VML.patch_data("mygame:m2.arr", {"x": 1}),
+			"M2 patch on array replaces with dict"):
+		failed = true
+	if not VMLTestUtil.expect_eq((VML.get_data("mygame:m2.arr") as Dictionary).get("x"), 1,
+			"M2 non-dict value replaced by patch"):
+		failed = true
+	# Cleanup: restore the file value for game:units.knight and drop temp entries.
+	VML.delete_data("game:units.knight")
+	VML.delete_data("mygame:m2.fresh")
+	VML.delete_data("mygame:m2.arr")
+	if not VMLTestUtil.expect_eq((VML.get_data("game:units.knight") as Dictionary).get("attack"), 15,
+			"M2 delete_data restores the file override"):
+		failed = true
+
+	# --- 0.3.3 M3: hook contract health ---
+	# The sample mod declares 3 hook points and registers 3 handlers (all matched),
+	# so the contract is healthy by default.
+	var m3_health: Dictionary = VML.get_hook_contract_health()
+	if not VMLTestUtil.expect_eq(int(m3_health.get("declared")), 3, "M3 declared hook points"):
+		failed = true
+	if not VMLTestUtil.expect_eq(int(m3_health.get("active")), 3, "M3 active (handled) hooks"):
+		failed = true
+	if not VMLTestUtil.expect_eq(int(m3_health.get("unhandled")), 0, "M3 no unhandled declared points"):
+		failed = true
+	if not VMLTestUtil.expect_eq(int(m3_health.get("undeclared")), 0, "M3 no undeclared handlers"):
+		failed = true
+	if not VMLTestUtil.expect(m3_health.get("healthy") == true, "M3 contract healthy by default"):
+		failed = true
+	# Introduce drift: a handler without a declaration, and a declared point with
+	# no handler.
+	var m3_ghost_callable := Callable(self, "_on_test_event")
+	VML.add_hook("m3:ghost_handler", m3_ghost_callable)
+	VML.register_hook_point("m3:ghost_point", "No handler listens", ["x"])
+	var m3_unmatched: Dictionary = VML.list_unmatched_hooks()
+	if not VMLTestUtil.expect(
+			(m3_unmatched.get("undeclared") as PackedStringArray).has("m3:ghost_handler"),
+			"M3 undeclared handler reported"):
+		failed = true
+	if not VMLTestUtil.expect(
+			(m3_unmatched.get("unhandled") as PackedStringArray).has("m3:ghost_point"),
+			"M3 unhandled declared point reported"):
+		failed = true
+	var m3_health2: Dictionary = VML.get_hook_contract_health()
+	if not VMLTestUtil.expect_eq(int(m3_health2.get("undeclared")), 1, "M3 health counts undeclared"):
+		failed = true
+	if not VMLTestUtil.expect_eq(int(m3_health2.get("unhandled")), 1, "M3 health counts unhandled"):
+		failed = true
+	if not VMLTestUtil.expect(m3_health2.get("healthy") == false, "M3 drift makes unhealthy"):
+		failed = true
+	var m3_filtered: Dictionary = VML.list_unmatched_hooks("m3:")
+	if not VMLTestUtil.expect(
+			(m3_filtered.get("undeclared") as PackedStringArray).has("m3:ghost_handler")
+			and (m3_filtered.get("unhandled") as PackedStringArray).has("m3:ghost_point"),
+			"M3 list_unmatched_hooks prefix filter"):
+		failed = true
+	VML.remove_hook("m3:ghost_handler", m3_ghost_callable)
+	if not VMLTestUtil.expect(VML.list_hooks("m3:").is_empty(), "M3 ghost handler cleaned up"):
+		failed = true
+	if not VMLTestUtil.expect_eq(int(VML.get_hook_contract_health().get("undeclared")), 0,
+			"M3 undeclared count back to 0 after remove"):
+		failed = true
+
+	# --- 0.3.3 M4: image placeholders load via ResourceLoader (pck-safe) ---
+	# A res:// image has an import cache -> get_resource resolves to the imported
+	# CompressedTexture2D (the format ResourceLoader returns), not a raw
+	# ImageTexture. This is what keeps image placeholders working inside an
+	# exported .pck (raw Image::load_from_file cannot read the .ctex import cache).
+	var m4_ph := "res://assets/game/icons/peasant.png"
+	if not VMLTestUtil.expect(VML.set_placeholder("mygame:m4.icon", "image", m4_ph,
+			"M4 imported image placeholder"), "M4 set_placeholder image res://"):
+		failed = true
+	var m4_res: Resource = VML.get_resource("mygame:m4.icon")
+	if not VMLTestUtil.expect(m4_res is Texture2D, "M4 placeholder get_resource returns Texture2D"):
+		failed = true
+	if not VMLTestUtil.expect(m4_res is CompressedTexture2D,
+			"M4 imported res:// image resolves to CompressedTexture2D (not raw ImageTexture)"):
+		failed = true
+	if not VMLTestUtil.expect(load("vml://mygame:m4.icon") is CompressedTexture2D,
+			"M4 vml:// load returns CompressedTexture2D"):
+		failed = true
+	if not VMLTestUtil.expect(VML.get_data("mygame:m4.icon") is CompressedTexture2D,
+			"M4 get_data on image placeholder returns the imported texture"):
+		failed = true
+	# user:// images (no import cache) still fall back to raw ImageTexture.
+	var m4_raw := "user://vml/m4_raw.png"
+	var m4_img := Image.create(4, 4, false, Image.FORMAT_RGBA8)
+	m4_img.fill(Color(1, 0, 0, 1))
+	m4_img.save_png(m4_raw)
+	VML.set_placeholder("mygame:m4.raw", "image", m4_raw)
+	if not VMLTestUtil.expect(VML.get_resource("mygame:m4.raw") is ImageTexture,
+			"M4 user:// raw image falls back to ImageTexture"):
+		failed = true
+	# Cleanup.
+	VML.remove_registry_entry("mygame:m4.icon")
+	VML.remove_registry_entry("mygame:m4.raw")
+	DirAccess.remove_absolute(m4_raw)
+	if not VMLTestUtil.expect(not VML.has("mygame:m4.icon"), "M4 placeholder cleanup"):
+		failed = true
+
 	quit(1 if failed else 0)
