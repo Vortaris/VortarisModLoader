@@ -48,8 +48,8 @@ var dmg: float = VML.invoke_hook("game:modify_damage", [base, weapon], base)
 
 ## Write a mod
 
-Create `res://mods-unpacked/<mod_id>/` — use the editor wizard (Editor > Tools →
-"VML Mods" dock → Create Mod) or by hand:
+Create `res://mods-unpacked/<mod_id>/` — use the editor wizard (**VML** main
+screen → **Create Mod**, next to 2D/3D/Script/AssetLib) or by hand:
 
 ```
 mymod/
@@ -65,6 +65,24 @@ mymod/
 
 Run the project in the editor; the mod applies. Edit a mod file while running —
 dev hot reload refreshes it live.
+
+## Beyond the basics (0.3.3)
+
+Three QoL APIs worth knowing from day one (full details in
+[database.md](database.md) and [hooks.md](hooks.md)):
+
+```gdscript
+# Enumerate every id of a dotted type across ALL namespaces — no prefix plumbing:
+var all_cards: PackedStringArray = VML.get_ids_of_type("cards")   # every ns:cards.* id
+var cards_data: Dictionary = VML.get_all_of_type("cards")          # { id: value, ... }
+
+# Patch a few fields of an existing Dictionary instead of replacing it whole:
+VML.patch_data("game:units.knight", {"health": 150})               # shallow merge
+
+# Surface hook-contract drift (handlers without a declaration, or declared
+# points with no handler):
+var health: Dictionary = VML.get_hook_contract_health()            # { declared, active, unhandled, undeclared, healthy }
+```
 
 ## Install a zip mod at runtime
 

@@ -26,7 +26,7 @@
 		- [b]数据库[/b]：内存仓库，可把全部数据 id 预载以实现 O(1) 查询（[method preload_database]、[method get_all]、[method set_data]、[method delete_data]）。
 		- [b]钩子[/b]：声明式事件点，每个都是命名空间 id（[method add_hook]、[method invoke_hook]、[method emit_hook]、[method check_hook]）。
 
-		mod 在 `res://mods-unpacked/` 与 `user://vml/mods/`（zip 安装）下被发现。运行时用 [method enable_mod]/[method disable_mod] 启停；[method install_mod_from_zip] 事务性解压 zip mod。
+		mod 在 `res://mods` 与 `res://mods-unpacked/`（默认 mod_dir/unpacked_dir）下被发现；`.pck` 包只读挂载并索引（包内内容须放在 `mods/&lt;mod_id&gt;/` 下）。运行时用 [method enable_mod]/[method disable_mod] 启停；[method install_mod_from_zip] 事务性把 zip mod 解压到第一个可写根（仅开发，分发用 pck）。
 	</description>
 	<methods>
 		<method name="is_initialized" qualifiers="const">
@@ -447,6 +447,13 @@
 
 			 某个 mod 的根目录（未知则为 ""）。</description>
 		</method>
+		<method name="get_mod_version" qualifiers="const">
+			<return type="String" />
+			<param index="0" name="mod_id" type="String" />
+			<description>Semver version from the manifest (`version_number`) of a mod ("" if unknown).
+
+			 某个 mod 的 manifest 版本号（`version_number`，semver）（未知则为 ""）。</description>
+		</method>
 		<method name="get_placeholder_ids" qualifiers="const">
 			<return type="PackedStringArray" />
 			<param index="0" name="type" type="String" default="&quot;&quot;" />
@@ -474,6 +481,13 @@
 			<description>Enabled mods that depend on `mod_id` (used by the editor's disable-confirmation UI). Disabling a mod cascade-disables its dependents.
 
 			 依赖 `mod_id` 的已启用 mod（编辑器禁用确认 UI 用）。禁用某 mod 会级联禁用其依赖者。</description>
+		</method>
+		<method name="get_mod_dependencies" qualifiers="const">
+			<return type="Dictionary" />
+			<param index="0" name="mod_id" type="String" />
+			<description>Dependencies of a mod (declared + optional that are present) as `{ dep_id: { exists, enabled } }` — for the editor's enable/disable confirmation UI. `exists` is whether the dependency mod was discovered, `enabled` whether it is currently enabled.
+
+			 某个 mod 的依赖（已声明 + 存在的可选依赖），格式 `{ dep_id: { exists, enabled } }`——供编辑器启停确认 UI 使用。`exists` 表示依赖 mod 是否被发现，`enabled` 表示它当前是否已启用。</description>
 		</method>
 		<method name="get_mod_description" qualifiers="const">
 			<return type="String" />
@@ -597,6 +611,12 @@
 
 			 钩子契约健康度聚合 { declared, active, unhandled, undeclared, healthy }，其中 `healthy` 为 true 表示每个已声明钩子点至少有一个 handler、且每个 handler 都有声明。任一方向的漂移通常意味着游戏重命名/移除了钩子点而 mod handler 未跟随，或 mod 监听了游戏从未声明的钩子。具体 id 见 [method list_unmatched_hooks]。</description>
 		</method>
+		<method name="get_legacy_mod_migration_notice" qualifiers="const">
+			<return type="String" />
+			<description>One-time migration hint for 0.2.x zip mods left in `user://vml/mods` after the 0.3.0 default mod-root change ("" when nothing was found or the notice was already shown). Move the mods into a configured root (e.g. `res://mods`) or call [code]VML.add_mod_root("user://vml/mods")[/code].
+
+			 0.3.0 默认 mod 根目录变更后，遗留在 `user://vml/mods` 里的 0.2.x zip mod 的一次性迁移提示（未发现或已提示过则为 ""）。把 mod 移入已配置根目录（如 `res://mods`），或调用 [code]VML.add_mod_root("user://vml/mods")[/code]。</description>
+		</method>
 		<method name="get_debug_log" qualifiers="const">
 			<return type="PackedStringArray" />
 			<description>Recent advanced-debug lines (gated by `vortarismodloader/general/debug_output`), each prefixed "[vortarismodloader][dbg]". Empty when the setting is off.
@@ -666,15 +686,15 @@
 		<method name="get_registry_entry" qualifiers="const">
 			<return type="Dictionary" />
 			<param index="0" name="id" type="String" />
-			<description>One registry entry as { path, type, description }.
+			<description>One registry entry as { path, type, description }, plus `value` when the entry is a persisted value provider (from [code]set_data(id, value, true)[/code]) and `placeholder: true` when it is a developer placeholder (see [method set_placeholder]). Empty when the id is not a registry entry.
 
-			 单条注册表条目 { path, type, description }。</description>
+			 单条注册表条目 { path, type, description }；条目是持久化值提供者（[code]set_data(id, value, true)[/code]）时另有 `value`；是开发者占位符（见 [method set_placeholder]）时另有 `placeholder: true`。id 不是注册表条目时为空。</description>
 		</method>
 		<method name="get_registry" qualifiers="const">
 			<return type="Dictionary" />
-			<description>All registry entries as { id: { path, type, description } }.
+			<description>All registry entries as { id: { path, type, description, value?, placeholder? } } (the optional keys appear exactly as in [method get_registry_entry]).
 
-			 全部注册表条目 { id: { path, type, description } }。</description>
+			 全部注册表条目 { id: { path, type, description, value?, placeholder? } }（可选键与 [method get_registry_entry] 一致）。</description>
 		</method>
 		<method name="remove_registry_entry">
 			<return type="bool" />

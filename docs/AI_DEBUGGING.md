@@ -136,6 +136,89 @@ func execute(scene_tree: SceneTree) -> Variant:
 	}
 ```
 
+### 1.7 0.3.3 约定式类型查询 / convention-based type queries
+
+按点分隔的 `ns:type.*` 前缀跨**所有**命名空间聚合，免去 `list_namespaces()` +
+`get_all(ns + ":")` 拼接。二者都含仅数据库条目（`set_data` 但无提供者）。
+
+```gdscript
+extends RefCounted
+
+func execute(scene_tree: SceneTree) -> Variant:
+	var vml: Object = Engine.get_singleton("VML")
+	if vml == null:
+		return {"ok": false}
+	return {
+		"ok": true,
+		"units_ids": vml.get_ids_of_type("units"),      # PackedStringArray, 所有 ns:units.* id
+		"units_data": vml.get_all_of_type("units"),     # { "game:units.knight": {...}, ... }
+		"cards_ids": vml.get_ids_of_type("cards"),
+	}
+```
+
+### 1.8 0.3.3 patch_data（浅层字段级合并）/ field-level patch
+
+只改 patch 里出现的字段；嵌套 Dictionary/Array 整体替换（不做递归合并）；
+id 不存在时等价 `set_data`。`database_entry_changed` 信号会发射。
+
+```gdscript
+extends RefCounted
+
+func execute(scene_tree: SceneTree) -> Variant:
+	var vml: Object = Engine.get_singleton("VML")
+	if vml == null:
+		return {"ok": false}
+	var patched: bool = vml.patch_data("game:units.knight", {"attack": 999})
+	return {
+		"ok": true,
+		"patched": patched,
+		"after": vml.get_data("game:units.knight"),   # attack == 999, 其余字段保留
+	}
+```
+
+### 1.9 0.3.3 钩子契约健康 / hook contract health
+
+`get_hook_contract_health()` 给聚合计数 `{ declared, active, unhandled, undeclared,
+healthy }`；`list_unmatched_hooks()` 给具体 id。`undeclared` = 有 handler 但未用
+`register_hook_point` 声明；`unhandled` = 声明了 hook 点但无 handler。二者任一非空
+通常意味着游戏重命名/移除了钩子点、或 mod 监听了未声明的钩子。
+
+```gdscript
+extends RefCounted
+
+func execute(scene_tree: SceneTree) -> Variant:
+	var vml: Object = Engine.get_singleton("VML")
+	if vml == null:
+		return {"ok": false}
+	return {
+		"ok": true,
+		"contract": vml.get_hook_contract_health(),      # { declared, active, unhandled, undeclared, healthy }
+		"unmatched": vml.list_unmatched_hooks("game:"),  # { undeclared: [...], unhandled: [...] }
+		"declared_points": vml.list_hook_points(),
+	}
+```
+
+### 1.10 0.3.3 image 占位符 pck 安全 / pck-safe image placeholders
+
+`set_placeholder(id, "image", res://path)` 在导出版经 `ResourceLoader` 解析，返回
+导入后的 `CompressedTexture2D`（原始 `Image::load_from_file` 读不了导出 `.pck`
+内的 `.ctex`）。`user://` 无导入缓存的图仍回退为 `ImageTexture`。
+
+```gdscript
+extends RefCounted
+
+func execute(scene_tree: SceneTree) -> Variant:
+	var vml: Object = Engine.get_singleton("VML")
+	if vml == null:
+		return {"ok": false}
+	vml.set_placeholder("mygame:m4.icon", "image", "res://assets/game/icons/peasant.png")
+	return {
+		"ok": true,
+		"as_resource": vml.get_resource("mygame:m4.icon").get_class(),  # CompressedTexture2D
+		"via_vml": load("vml://mygame:m4.icon").get_class(),
+	}
+```
+
 ---
 
 ## 2. Headless CLI — 参数表
@@ -175,8 +258,11 @@ func execute(scene_tree: SceneTree) -> Variant:
 
 ### 命令行示例 / examples
 
+`godot` 指你的 Godot 控制台可执行文件（Windows 用 `*_console.exe`，Linux/macOS
+用 `godot`），把它放进 PATH 或写成绝对路径占位符 `<path-to-godot>`：
+
 ```bash
-GODOT="E:/Godot/Godot_v4.7-stable_win64/Godot_v4.7-stable_win64_console.exe"
+GODOT="<path-to-godot>"
 
 "$GODOT" --headless --path demo --script res://scripts/cli_entry.gd -- --vortaris-vml-report
 "$GODOT" --headless --path demo --script res://scripts/cli_entry.gd -- --vortaris-vml-validate mymod
@@ -195,8 +281,12 @@ GODOT="E:/Godot/Godot_v4.7-stable_win64/Godot_v4.7-stable_win64_console.exe"
 
 ## 3. 编辑器面板说明 / editor panels
 
-- **"VML Mods"**（`mod_manager_panel.gd`，左下方 dock，Import 旁）：给人用的 mod
-  管理——启停、安装 zip、卸载（仅 user://）、热重载、配置表单。AI 请用
+- **"VML" 主屏**（`mods_main_screen.gd`，`editor_plugin.gd` 里
+  `_has_main_screen` 注册为 2D/3D/Script/AssetLib 旁的独立标签页）：给人用的 mod
+  管理——启停、拖拽排序、安装 zip/PCK、卸载（仅 user://）、热重载、配置表单、
+  Export PCK、Hooks/Content 标签页。**它在编辑器里自动运行 `finish_startup()`**，
+  因此 mod_main 的钩子可见。旧的左下方 dock 已移除；
+  `mod_manager_panel.gd` 只是承载同一主屏的薄包装（保留以过 T29 测试）。AI 请用
   `VML.enable_mod` / `disable_mod` / `install_mod_from_zip` 或 CLI。
 - **"VML IDs"**（`id_editor_panel.gd`，右 dock，Inspector 旁）：给人用的注册表编辑。
   AI 请用 `set_registry_entry` / `get_registry_entry` / `save_registry` 或 CLI。
@@ -215,7 +305,7 @@ godot --headless --editor --import --quit --path demo
 # 冒烟：应打印 "=== VortarisModLoader Demo OK ==="，退出 0。
 godot --headless --path demo --quit
 
-# 全量回归（T0–T62，196 断言），退出 0 = 全部通过
+# 全量回归（T0–T73 + 0.3.0 F1–F8 修复 + 0.3.3 M1–M4，380+ 断言），退出 0 = 全部通过
 godot --headless --path demo --script res://scripts/regression_test.gd
 
 # CLI 冒烟：启动报告 + mod 列表，退出 0

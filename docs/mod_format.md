@@ -38,6 +38,7 @@ Thunderstore-compatible field names; Vortaris-specific keys live under `extra.go
 | `extra.godot.icon` | string | default `"icon.png"` |
 | `extra.godot.asset_dirs` / `data_dirs` | string[] | default `["assets"]` / `["data"]` |
 | `extra.godot.id_overrides` | object | `{ "<rel path>": "<full id>" }` — explicitly map a file to an id, beating path inference (see below) |
+| `extra.godot.config_schema` | object | JSON-Schema-ish `{type, properties}`; the editor generates the Config dialog form from it, and `VML.get_config_schema()` returns it |
 
 Example:
 

@@ -19,7 +19,7 @@ scons -j 8 platform=windows target=template_debug arch=x86_64 build_library=Fals
 # Functional smoke (expect "=== VortarisModLoader Demo OK ===", exit 0)
 godot --headless --path demo --quit
 
-# Regression suite (T0–T73 + F1–F8 review fixes, 290 assertions; exit 0 = all pass)
+# Regression suite (T0–T73 + F1–F8 review fixes + 0.3.3 M1–M4; 380+ assertions; exit 0 = all pass)
 godot --headless --path demo --script res://scripts/regression_test.gd
 
 # Headless CLI for AI/automation (see docs/AI_DEBUGGING.md)
@@ -94,6 +94,12 @@ Two layers, mirroring VortarisCSV/VortarisECS: pure C++ core (`src/core/`,
   priority, explicit, preloaded, reserved, type, data_type}; `set_id_type`/
   `get_id_type`/`list_ids_by_type` filter by a logical type tag; `reserve`/
   `unreserve` declare an id without a provider (has() then reports true).
+- **Convention-based type queries (0.3.3)**: `get_ids_of_type("cards")` /
+  `get_all_of_type("cards")` aggregate the dotted `ns:cards.*` prefix across
+  every namespace — no `list_namespaces()` + `get_all(ns + ":")` plumbing;
+  `patch_data(id, {"hp": 999})` is a *shallow* field-level merge into an existing
+  Dictionary (a nested Dictionary/Array value in the patch replaces the whole
+  existing value; missing ids behave like `set_data`).
 - **Logging**: mod actions always `print_line` ("VML: mod 'x' enabled/disabled/
   installed/uninstalled"); extra detail is gated behind
   `vortarismodloader/general/verbose` (read once per call via `log_verbose`).
@@ -137,7 +143,11 @@ Two layers, mirroring VortarisCSV/VortarisECS: pure C++ core (`src/core/`,
 - **Hooks are declarative + namespaced, never source rewriting.** The game calls
   `invoke_hook/emit_hook/check_hook` at instrumented points; mods register
   `Callable`s with `add_hook`. Handler signatures: invoke `func(current, ...args)`,
-  emit `func(...args)`, check `func(...args) -> bool`.
+  emit `func(...args)`, check `func(...args) -> bool`. Declare offered points with
+  `register_hook_point`; 0.3.3 adds `get_hook_contract_health()` /
+  `list_unmatched_hooks()` to surface drift between declared points and attached
+  handlers (undeclared = handler with no declaration, unhandled = declared point
+  with no handler).
 - **Deactivation must reset state.** `deactivate_mod` must clear hooks
   (`hooks_.remove_mod`), destroy the mod_main node, drop registry providers and
   database entries, and reset `content_scanned = false` — otherwise re-activation
@@ -160,8 +170,9 @@ Two layers, mirroring VortarisCSV/VortarisECS: pure C++ core (`src/core/`,
 ### Testing conventions
 
 Headless `extends SceneTree` scripts in `demo/scripts/`. `vml_test_util.gd`
-provides `expect/expect_eq`; `regression_test.gd` runs T0–T62 (196 assertions)
-and `quit(0/1)`. `cli_entry.gd` (thin bootstrap, no engine-singleton identifier)
+provides `expect/expect_eq`; `regression_test.gd` runs T0–T73 plus the 0.3.0
+F1–F8 review fixes and the 0.3.3 M1–M4 sections (380+ assertion call sites) and
+`quit(0/1)`. `cli_entry.gd` (thin bootstrap, no engine-singleton identifier)
 + `cli_impl.gd` (actual logic, loaded only after a `ClassDB` guard) form the
 headless CLI; see `docs/AI_DEBUGGING.md`.
 Signal connections to the `VML` singleton **must use named methods, not lambdas**
