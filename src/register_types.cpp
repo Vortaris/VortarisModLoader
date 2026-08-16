@@ -93,6 +93,13 @@ static void register_vml_project_settings() {
 				ps->set_setting(new_path, s.default_value);
 			}
 		}
+		// 0.3.2: drop the legacy flat key once the tiered path is ensured. Leaving it
+		// in place lets get_ml_setting's "tiered==default && flat exists" fallback
+		// keep shadowing runtime writes to the tiered path (set_export_policy /
+		// set_database_mode would silently stop taking effect for upgraded projects).
+		if (ps->has_setting(old_path)) {
+			ps->clear(old_path);
+		}
 		Dictionary pi;
 		pi["name"] = new_path;
 		pi["type"] = s.type;
@@ -123,6 +130,25 @@ static void register_vml_project_settings() {
 			}
 			if (arr.size() > 1 && ps->get_setting("vortarismodloader/paths/unpacked_dir") == Variant(default_unpacked)) {
 				ps->set_setting("vortarismodloader/paths/unpacked_dir", arr[1]);
+			}
+			// Preserve any extra roots (index >= 2) — e.g. custom roots added via
+			// add_mod_root — by appending them to the runtime extra_roots list,
+			// otherwise they'd be silently lost when the array is cleared below.
+			for (int i = 2; i < arr.size(); i++) {
+				// extra_roots is runtime-only (not registered); collect existing
+				// entries if any, then append the legacy array's extra roots.
+				const godot::Variant ev = ps->get_setting("vortarismodloader/paths/extra_roots");
+				godot::Array extra;
+				if (ev.get_type() == Variant::ARRAY) {
+					extra = ev;
+				} else if (ev.get_type() == Variant::PACKED_STRING_ARRAY) {
+					const godot::PackedStringArray psa = ev;
+					for (int k = 0; k < psa.size(); k++) {
+						extra.push_back(psa[k]);
+					}
+				}
+				extra.push_back(arr[i]);
+				ps->set_setting("vortarismodloader/paths/extra_roots", extra);
 			}
 		}
 		ps->clear(legacy);
