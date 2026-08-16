@@ -3,13 +3,14 @@
 #include <deque>
 #include <vector>
 
-#include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/core/print_string.hpp>
 #include <godot_cpp/variant/string.hpp>
 
+#include "vml_settings.h"
+
 namespace vortarismodloader {
 
-// Advanced debug logging (vortarismodloader/debug_output, default false).
+// Advanced debug logging (vortarismodloader/general/debug_output, default false).
 //
 // Mirrors VMLModLoader::log_verbose but with its own gate: when the setting is
 // on, every log_debug() line is printed to the console with the
@@ -26,7 +27,7 @@ inline std::deque<godot::String> &debug_log_buffer() {
 }
 
 inline bool debug_active() {
-	return godot::ProjectSettings::get_singleton()->get_setting("vortarismodloader/debug_output", false);
+	return bool(get_ml_setting("general", "debug_output", false));
 }
 
 inline void log_debug(const godot::String &p_msg) {

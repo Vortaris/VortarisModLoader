@@ -96,7 +96,16 @@ Two layers, mirroring VortarisCSV/VortarisECS: pure C++ core (`src/core/`,
   `unreserve` declare an id without a provider (has() then reports true).
 - **Logging**: mod actions always `print_line` ("VML: mod 'x' enabled/disabled/
   installed/uninstalled"); extra detail is gated behind
-  `vortarismodloader/verbose` (read once per call via `log_verbose`).
+  `vortarismodloader/general/verbose` (read once per call via `log_verbose`).
+- **Project settings are hierarchical (0.3.1)**: `vortarismodloader/*` settings live
+  under `general` / `paths` / `export` and are registered by
+  `register_vml_project_settings()` in `src/register_types.cpp` (defaults written
+  only when absent — never overwrite a user value; legacy flat values are migrated
+  on upgrade). Every C++ reader must go through
+  `vortarismodloader::get_ml_setting()` in `src/core/vml_settings.h` (new tiered
+  path, then the old flat `vortarismodloader/<name>` fallback); never read the
+  deprecated flat path directly. `debug_output` is read the same way via
+  `debug_log.h` → `debug_active()`.
 - **Persisted content registry (0.2.0)**: `registry_map_` holds `id → {path,type,
   description}`; entries register as `__registry__` providers at priority 0 so mods
   override them. `finish_startup()` loads `res://registry.json` then

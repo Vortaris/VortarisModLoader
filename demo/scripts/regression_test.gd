@@ -1617,4 +1617,53 @@ func _initialize() -> void:
 	l1_panel.free()
 	m1_screen.free()
 
+	# --- 0.3.1 P1: tiered project settings — default read + registration ---
+	# The tiered keys are auto-registered at extension load, so they exist and read
+	# their documented defaults through the new path directly.
+	if not VMLTestUtil.expect(
+			ProjectSettings.get_setting("vortarismodloader/general/debug_output", false) == false,
+			"P1 tiered general/debug_output default false"):
+		failed = true
+	if not VMLTestUtil.expect(
+			ProjectSettings.get_setting("vortarismodloader/general/verbose", false) == false,
+			"P1 tiered general/verbose default false"):
+		failed = true
+	if not VMLTestUtil.expect(
+			ProjectSettings.get_setting("vortarismodloader/general/database_mode", "data") == "data",
+			"P1 tiered general/database_mode default data"):
+		failed = true
+	if not VMLTestUtil.expect(
+			ProjectSettings.get_setting("vortarismodloader/general/validate_on_startup", true) == true,
+			"P1 tiered general/validate_on_startup default true"):
+		failed = true
+	if not VMLTestUtil.expect(
+			ProjectSettings.has_setting("vortarismodloader/general/show_error_dialogs"),
+			"P1 tiered general/show_error_dialogs registered"):
+		failed = true
+	if not VMLTestUtil.expect(
+			ProjectSettings.has_setting("vortarismodloader/paths/mod_paths"),
+			"P1 tiered paths/mod_paths registered"):
+		failed = true
+	if not VMLTestUtil.expect(
+			ProjectSettings.has_setting("vortarismodloader/paths/registry_path"),
+			"P1 tiered paths/registry_path registered"):
+		failed = true
+	if not VMLTestUtil.expect(
+			ProjectSettings.has_setting("vortarismodloader/export/export_mods"),
+			"P1 tiered export/export_mods registered"):
+		failed = true
+
+	# --- 0.3.1 P2: legacy flat path fallback (write old, new-tiered read honors it) ---
+	# mod_roots() reads through vortarismodloader::get_ml_setting(): the tiered
+	# value is still the registered default, so an explicit legacy flat write must
+	# win (backward compat with 0.3.0 project.godot files).
+	var p2_saved_roots: PackedStringArray = VML.get_mod_roots()
+	ProjectSettings.set_setting("vortarismodloader/mod_paths",
+			PackedStringArray(["res://mods", "user://vml/p2_fallback"]))
+	var p2_roots: PackedStringArray = VML.get_mod_roots()
+	if not VMLTestUtil.expect(p2_roots.has("user://vml/p2_fallback"),
+			"P2 legacy flat mod_paths read via tiered path (fallback)"):
+		failed = true
+	ProjectSettings.set_setting("vortarismodloader/mod_paths", p2_saved_roots)
+
 	quit(1 if failed else 0)

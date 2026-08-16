@@ -1,5 +1,23 @@
 # Release Notes
 
+## 0.3.1
+
+Project Settings organization, matching the VortarisCSV/VortarisECS layout:
+
+- Every `vortarismodloader/*` setting now lives under a tiered path:
+  - `vortarismodloader/general/*` — `verbose`, `show_error_dialogs`, `debug_output`,
+    `auto_finish_startup`, `validate_on_startup`, `database_mode`
+  - `vortarismodloader/paths/*` — `mod_paths`, `registry_path`, `scan_user_mods`
+  - `vortarismodloader/export/*` — `export_mods`
+- All settings are registered in `src/register_types.cpp` (defaults written only
+  when absent — the 0.3.0 F4 fix) so they show up in the Project Settings editor
+  with the correct type/hint.
+- **Backward compatible**: every reader goes through
+  `vortarismodloader::get_ml_setting()` (`src/core/vml_settings.h`), which reads
+  the new tiered path and falls back to the legacy flat `vortarismodloader/<name>`
+  key (0.3.0 and earlier). Existing project.godot values keep working, and legacy
+  flat values are migrated to the tiered path on startup. No behavior changes.
+
 ## 0.3.0
 
 Stage A of the GDExtension rewrite: explicit id overrides, error dialogs +
@@ -19,7 +37,7 @@ console, advanced debug output, pck distribution, and the enable/load state fix.
 
 ### A2 — Error dialogs + console (#3)
 
-- New project setting `vortarismodloader/show_error_dialogs` (bool, default
+- New project setting `vortarismodloader/general/show_error_dialogs` (bool, default
   false), registered in `src/register_types.cpp`.
 - After `finish_startup()` / `rescan()`, mod errors are **always printed to the
   console**; when the setting is on **and** the display is not headless, a modal
@@ -28,16 +46,16 @@ console, advanced debug output, pck distribution, and the enable/load state fix.
 
 ### A3 — Advanced debug output (#4)
 
-- New project setting `vortarismodloader/debug_output` (bool, default false).
+- New project setting `vortarismodloader/general/debug_output` (bool, default false).
 - When on, key paths emit `[vortarismodloader][dbg]` lines: discovery/scan per
   file, registry add/remove/priority, database set/erase/preload, hook
   register/invoke/emit/check, loader data/resource loads, pck mounts.
 - New API: `get_debug_log()` (recent lines) / `clear_debug_log()`. Gated
-  independently of the existing `vortarismodloader/verbose`.
+  independently of the existing `vortarismodloader/general/verbose`.
 
 ### A4 — Mod path defaults + pck support (#5)
 
-- Default `vortarismodloader/mod_paths` is now `["res://mods",
+- Default `vortarismodloader/paths/mod_paths` is now `["res://mods",
   "res://mods-unpacked"]` — `user://vml/mods` is no longer a default root.
 - `.pck` files under a configured root are **mounted read-only** at startup
   (`ProjectSettings.load_resource_pack`). Content must be namespaced under
@@ -148,9 +166,9 @@ Code-review hardening of the 0.3.0 baseline.
   back to the default topological order with a warning instead of corrupting the
   load order.
 - **F4 — project settings are no longer reset at startup.**
-  `vortarismodloader/show_error_dialogs` and `debug_output` only get their default
-  written when the setting is absent, so a `true` in `project.godot` survives
-  every launch.
+  `vortarismodloader/general/show_error_dialogs` and
+  `vortarismodloader/general/debug_output` only get their default written when the
+  setting is absent, so a `true` in `project.godot` survives every launch.
 - **F5 — legacy 0.2.x zip mods get a one-time migration notice.** 0.3.0 removed
   `user://vml/mods` from the default `mod_paths` (distribution now uses `.pck`
   packs). On startup, if `user://vml/mods` still contains zip-installed mods and is
@@ -233,7 +251,7 @@ Three-tier feedback pass + new-feature core.
   returned. `check_hook` semantics documented (bool = allow; any `false` vetoes).
 - **`finish_startup_auto()` + `is_startup_done()`**: deferred, retries until the
   scene tree is ready so autoload `_ready` runs first; opt-in via
-  `vortarismodloader/auto_finish_startup`.
+  `vortarismodloader/general/auto_finish_startup`.
 - **`list_ids_in_namespace(ns)` / `count_ids(prefix)`**; `get_all` now returns the
   union of registry + database ids (values lazily resolved). The mod wizard emits
   a `data/<id>/sample.json` whose `"id"` matches the path-inferred id.
@@ -244,7 +262,7 @@ Three-tier feedback pass + new-feature core.
   version mismatch / enabled incompatibility now reject the enable with a reason.
 - **Startup data validation** (`validate_mod`): manifest completeness, loadable
   `mod_main`, parseable data JSON, JSON `"id"` vs path-inferred id cross-check
-  (mismatch → warning). `vortarismodloader/validate_on_startup` (default true)
+  (mismatch → warning). `vortarismodloader/general/validate_on_startup` (default true)
   marks problems at boot but never refuses to start.
 - **Error/warning aggregation**: `get_mod_report(id)`, `get_errors_summary()`,
   `get_startup_report()`; `get_mod_errors` stays errors-only.
@@ -255,13 +273,13 @@ Three-tier feedback pass + new-feature core.
   re-scans, re-instantiates `mod_main`, emits `mod_reloaded` (no duplicate hooks).
 - **`set_data(id, value, persist=true)`**: persists the value as a project-level
   `__registry__` entry (priority 0, mods override it). Registry now defaults to
-  `res://vml/registry.json` (`vortarismodloader/registry_path`, git-committable),
+  `res://vml/registry.json` (`vortarismodloader/paths/registry_path`, git-committable),
   falling back to `user://vml/registry.json` in read-only exports; old registry
   files load unchanged.
-- **Export/scan controls**: `vortarismodloader/export_mods`
-  (`embedded`/`external`/`none`) + `vortarismodloader/scan_user_mods`;
+- **Export/scan controls**: `vortarismodloader/export/export_mods`
+  (`embedded`/`external`/`none`) + `vortarismodloader/paths/scan_user_mods`;
   `get_mod_package_plan()` / `set_export_policy()`.
-- **Custom mod roots**: `vortarismodloader/mod_paths` + `get_mod_roots` /
+- **Custom mod roots**: `vortarismodloader/paths/mod_paths` + `get_mod_roots` /
   `add_mod_root` / `remove_mod_root`; `rescan()` respects them.
 
 ### Editor & in-game UI

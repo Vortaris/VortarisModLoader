@@ -77,7 +77,7 @@ public:
 	Dictionary get_all(const String &p_prefix = "") const;
 	/// Overwrite a database entry in place. `persist=true` additionally stores the
 	/// value as a `__registry__` value provider (priority 0) and saves the registry
-	/// so it survives restarts (see vortarismodloader/registry_path).
+	/// so it survives restarts (see vortarismodloader/paths/registry_path).
 	bool set_data(const String &p_id, const Variant &p_value, bool p_persist = false);
 	bool delete_data(const String &p_id);
 	String get_database_mode() const;
@@ -131,8 +131,8 @@ public:
 	/// Every placeholder id, optionally filtered by type ("" = all).
 	PackedStringArray get_placeholder_ids(const String &p_type = "") const;
 	/// Persist the registry. Empty path (default) uses the configured project-level
-	/// path (vortarismodloader/registry_path, default res://vml/registry.json) and
-	/// falls back to user://vml/registry.json when res:// is read-only (exports).
+	/// path (vortarismodloader/paths/registry_path, default res://vml/registry.json)
+	/// and falls back to user://vml/registry.json when res:// is read-only (exports).
 	Error save_registry(const String &p_path = "");
 	Error load_registry(const String &p_path = "");
 
@@ -246,10 +246,10 @@ public:
 	// --- packaging / roots (0.2.2) -------------------------------------
 	/// { embedded, external, scan_user_mods } from project settings.
 	Dictionary get_mod_package_plan() const;
-	/// Set vortarismodloader/export_mods ("embedded"/"external"/"none") and
-	/// vortarismodloader/scan_user_mods, persisted to ProjectSettings.
+	/// Set vortarismodloader/export/export_mods ("embedded"/"external"/"none") and
+	/// vortarismodloader/paths/scan_user_mods, persisted to ProjectSettings.
 	bool set_export_policy(const String &p_mode, bool p_scan_user);
-	/// Configured mod root directories (vortarismodloader/mod_paths).
+	/// Configured mod root directories (vortarismodloader/paths/mod_paths).
 	PackedStringArray get_mod_roots() const;
 	bool add_mod_root(const String &p_path);
 	bool remove_mod_root(const String &p_path);
@@ -266,9 +266,9 @@ public:
 	// --- 0.3.0: error summary + debug log introspection -----------------
 	/// Human-readable startup error summary ("<mod>: <err>" lines, one per error).
 	/// This is what is printed to the console (and shown in the error dialog when
-	/// vortarismodloader/show_error_dialogs is on and not headless).
+	/// vortarismodloader/general/show_error_dialogs is on and not headless).
 	String get_error_summary() const;
-	/// Recent advanced-debug lines (vortarismodloader/debug_output gate),
+	/// Recent advanced-debug lines (vortarismodloader/general/debug_output gate),
 	/// each prefixed "[vortarismodloader][dbg] ".
 	PackedStringArray get_debug_log() const;
 	void clear_debug_log();
@@ -315,8 +315,8 @@ private:
 	/// content must live under mods/<mod_id>/). Called at the top of scan_mods.
 	void mount_packs();
 	/// After a scan/finish_startup: always print the error summary to the console;
-	/// when vortarismodloader/show_error_dialogs is on and the display is not
-	/// headless, pop an AcceptDialog with the same summary.
+	/// when vortarismodloader/general/show_error_dialogs is on and the display is
+	/// not headless, pop an AcceptDialog with the same summary.
 	void maybe_show_error_dialogs();
 	/// "<mod>: <err>" lines, one per startup error ("" when clean).
 	String error_summary_text() const;
@@ -358,7 +358,7 @@ private:
 	Variant provider_value(const vortarismodloader::ProviderEntry &p_e) const;
 	/// Configured (or default) project-level registry path.
 	String registry_path() const;
-	/// Configured mod root directories (vortarismodloader/mod_paths).
+	/// Configured mod root directories (vortarismodloader/paths/mod_paths).
 	PackedStringArray mod_roots() const;
 	/// Runtime dependency/incompatibility/version re-check before an enable.
 	bool runtime_deps_ok(ModRecord &p_rec, std::vector<String> &r_reason) const;

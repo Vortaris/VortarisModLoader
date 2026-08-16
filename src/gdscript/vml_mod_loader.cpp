@@ -27,6 +27,7 @@
 #include "../core/discovery.h"
 #include "../core/loader_backend.h"
 #include "../core/scanner.h"
+#include "../core/vml_settings.h"
 #include "../core/zip_installer.h"
 
 namespace godot {
@@ -41,9 +42,9 @@ VMLModLoader::VMLModLoader() {
 	scan_mods();
 	initialized_ = true;
 
-	// Unified load: honor vortarismodloader/database_mode ("data"/"all"/"off").
+	// Unified load: honor vortarismodloader/general/database_mode ("data"/"all"/"off").
 	database_mode_ = mode_from_string(godot::Variant(
-			ProjectSettings::get_singleton()->get_setting("vortarismodloader/database_mode", "data")));
+			vortarismodloader::get_ml_setting("general", "database_mode", "data")));
 	if (database_mode_ != DatabaseMode::OFF) {
 		preload_database();
 	}
@@ -54,7 +55,7 @@ VMLModLoader::VMLModLoader() {
 
 	// Auto-finish startup (project setting): instantiate mod_main after autoload
 	// _ready without the game having to call finish_startup() itself.
-	if (ProjectSettings::get_singleton()->get_setting("vortarismodloader/auto_finish_startup", false)) {
+	if (bool(vortarismodloader::get_ml_setting("general", "auto_finish_startup", false))) {
 		finish_startup_auto();
 	}
 }
@@ -101,10 +102,8 @@ void VMLModLoader::scan_mods() {
 	// 1) Discover from the configured mod roots (default res://mods and
 	//    res://mods-unpacked), honoring the export policy and the user-mod switch.
 	std::vector<vortarismodloader::DiscoveredMod> discovered;
-	const String export_mode = ProjectSettings::get_singleton()->get_setting(
-			"vortarismodloader/export_mods", "embedded");
-	const bool scan_user = ProjectSettings::get_singleton()->get_setting(
-			"vortarismodloader/scan_user_mods", true);
+	const String export_mode = String(vortarismodloader::get_ml_setting("export", "export_mods", "embedded"));
+	const bool scan_user = bool(vortarismodloader::get_ml_setting("paths", "scan_user_mods", true));
 	const PackedStringArray roots = mod_roots();
 	for (int i = 0; i < roots.size(); i++) {
 		const String root = roots[i];
@@ -258,8 +257,7 @@ void VMLModLoader::mount_packs() {
 	// The export policy applies here too: "none" loads nothing (skip mounting
 	// entirely) and "external" only mounts packs under non-embedded (user) roots —
 	// exactly the same gate as the discovery loop in scan_mods.
-	const String export_mode = ProjectSettings::get_singleton()->get_setting(
-			"vortarismodloader/export_mods", "embedded");
+	const String export_mode = String(vortarismodloader::get_ml_setting("export", "export_mods", "embedded"));
 	if (export_mode == "none") {
 		return;
 	}
@@ -319,7 +317,7 @@ void VMLModLoader::maybe_show_error_dialogs() {
 	}
 	print_line(String("VML: startup has mod errors:\n") + summary);
 	log_verbose("error summary printed to console");
-	const bool show = ProjectSettings::get_singleton()->get_setting("vortarismodloader/show_error_dialogs", false);
+	const bool show = bool(vortarismodloader::get_ml_setting("general", "show_error_dialogs", false));
 	if (!show) {
 		return;
 	}
@@ -634,7 +632,7 @@ bool VMLModLoader::set_database_mode(const String &p_mode) {
 	const DatabaseMode m = mode_from_string(p_mode);
 	if (m != database_mode_) {
 		database_mode_ = m;
-		ProjectSettings::get_singleton()->set_setting("vortarismodloader/database_mode", mode_to_string(m));
+		ProjectSettings::get_singleton()->set_setting("vortarismodloader/general/database_mode", mode_to_string(m));
 		reload_database();
 	}
 	return true;
@@ -1094,8 +1092,7 @@ Variant VMLModLoader::provider_value(const vortarismodloader::ProviderEntry &p_e
 }
 
 String VMLModLoader::registry_path() const {
-	const Variant configured = ProjectSettings::get_singleton()->get_setting(
-			"vortarismodloader/registry_path", "res://vml/registry.json");
+	const Variant configured = vortarismodloader::get_ml_setting("paths", "registry_path", "res://vml/registry.json");
 	if (configured.get_type() == Variant::STRING) {
 		const String s = String(configured).strip_edges();
 		if (!s.is_empty()) {
@@ -2036,11 +2033,11 @@ bool VMLModLoader::reload_mod(const String &p_mod_id) {
 
 Dictionary VMLModLoader::get_mod_package_plan() const {
 	Dictionary out;
-	const String mode = ProjectSettings::get_singleton()->get_setting("vortarismodloader/export_mods", "embedded");
+	const String mode = String(vortarismodloader::get_ml_setting("export", "export_mods", "embedded"));
 	out["embedded"] = mode == "embedded";
 	out["external"] = mode == "external";
 	out["scan_user_mods"] =
-			ProjectSettings::get_singleton()->get_setting("vortarismodloader/scan_user_mods", true);
+			bool(vortarismodloader::get_ml_setting("paths", "scan_user_mods", true));
 	return out;
 }
 
@@ -2049,8 +2046,8 @@ bool VMLModLoader::set_export_policy(const String &p_mode, bool p_scan_user) {
 	if (m != "embedded" && m != "external" && m != "none") {
 		return false;
 	}
-	ProjectSettings::get_singleton()->set_setting("vortarismodloader/export_mods", m);
-	ProjectSettings::get_singleton()->set_setting("vortarismodloader/scan_user_mods", p_scan_user);
+	ProjectSettings::get_singleton()->set_setting("vortarismodloader/export/export_mods", m);
+	ProjectSettings::get_singleton()->set_setting("vortarismodloader/paths/scan_user_mods", p_scan_user);
 	return true;
 }
 
@@ -2116,8 +2113,7 @@ PackedStringArray VMLModLoader::mod_roots() const {
 	PackedStringArray defaults;
 	defaults.push_back("res://mods");
 	defaults.push_back("res://mods-unpacked");
-	const Variant configured =
-			ProjectSettings::get_singleton()->get_setting("vortarismodloader/mod_paths", defaults);
+	const Variant configured = vortarismodloader::get_ml_setting("paths", "mod_paths", defaults);
 	PackedStringArray out;
 	if (configured.get_type() == Variant::PACKED_STRING_ARRAY) {
 		out = configured;
@@ -2188,7 +2184,7 @@ bool VMLModLoader::add_mod_root(const String &p_path) {
 		return true;
 	}
 	roots.push_back(p_path);
-	ProjectSettings::get_singleton()->set_setting("vortarismodloader/mod_paths", roots);
+	ProjectSettings::get_singleton()->set_setting("vortarismodloader/paths/mod_paths", roots);
 	return true;
 }
 
@@ -2199,12 +2195,12 @@ bool VMLModLoader::remove_mod_root(const String &p_path) {
 		return false;
 	}
 	roots.remove_at(idx);
-	ProjectSettings::get_singleton()->set_setting("vortarismodloader/mod_paths", roots);
+	ProjectSettings::get_singleton()->set_setting("vortarismodloader/paths/mod_paths", roots);
 	return true;
 }
 
 void VMLModLoader::log_verbose(const String &p_msg) const {
-	if (ProjectSettings::get_singleton()->get_setting("vortarismodloader/verbose", false)) {
+	if (bool(vortarismodloader::get_ml_setting("general", "verbose", false))) {
 		print_line(String("VML[v] ") + p_msg);
 	}
 }
@@ -2358,7 +2354,7 @@ void VMLModLoader::rescan() {
 	database_.clear();
 	preload_database();
 	// Re-validate after a re-scan so the error/warning summary stays accurate.
-	if (ProjectSettings::get_singleton()->get_setting("vortarismodloader/validate_on_startup", true) &&
+	if (bool(vortarismodloader::get_ml_setting("general", "validate_on_startup", true)) &&
 			!startup_validation_done_) {
 		run_startup_validation();
 		startup_validation_done_ = true;
@@ -2471,7 +2467,7 @@ void VMLModLoader::finish_startup() {
 	load_registry("user://vml/registry.json");
 	// Startup validation: mark problems, never throw or refuse to load. Runs here
 	// (after the VML singleton is registered) so mod_main scripts parse cleanly.
-	if (ProjectSettings::get_singleton()->get_setting("vortarismodloader/validate_on_startup", true) &&
+	if (bool(vortarismodloader::get_ml_setting("general", "validate_on_startup", true)) &&
 			!startup_validation_done_) {
 		run_startup_validation();
 		startup_validation_done_ = true;

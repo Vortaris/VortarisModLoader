@@ -261,9 +261,9 @@
 		</method>
 		<method name="finish_startup_auto">
 			<return type="void" />
-			<description>Auto version of [method finish_startup]: call_deferred + retry until the scene tree is ready, so autoload `_ready` has run before mod_mains instantiate. Idempotent. Set `vortarismodloader/auto_finish_startup` to trigger it from the constructor instead of calling it yourself.
+			<description>Auto version of [method finish_startup]: call_deferred + retry until the scene tree is ready, so autoload `_ready` has run before mod_mains instantiate. Idempotent. Set `vortarismodloader/general/auto_finish_startup` to trigger it from the constructor instead of calling it yourself.
 
-			 [method finish_startup] 的自动版：call_deferred 并在场景树就绪前重试，确保 autoload `_ready` 已运行后才实例化 mod_main。幂等。设置 `vortarismodloader/auto_finish_startup` 可从构造函数自动触发，无需手动调用。</description>
+			 [method finish_startup] 的自动版：call_deferred 并在场景树就绪前重试，确保 autoload `_ready` 已运行后才实例化 mod_main。幂等。设置 `vortarismodloader/general/auto_finish_startup` 可从构造函数自动触发，无需手动调用。</description>
 		</method>
 		<method name="is_startup_done" qualifiers="const">
 			<return type="bool" />
@@ -387,9 +387,9 @@
 		<method name="validate_mod" qualifiers="const">
 			<return type="Dictionary" />
 			<param index="0" name="mod_id" type="String" />
-			<description>Validate a mod: manifest completeness, loadable main_script, parseable data JSON, and JSON `"id"` vs path-inferred id cross-check. Returns { valid, errors, warnings, checked }. Run automatically at startup when `vortarismodloader/validate_on_startup` is enabled.
+			<description>Validate a mod: manifest completeness, loadable main_script, parseable data JSON, and JSON `"id"` vs path-inferred id cross-check. Returns { valid, errors, warnings, checked }. Run automatically at startup when `vortarismodloader/general/validate_on_startup` is enabled.
 
-			 校验一个 mod：manifest 完整性、main_script 可加载、数据 JSON 可解析、JSON `"id"` 与路径推断 id 交叉核对。返回 { valid, errors, warnings, checked }。`vortarismodloader/validate_on_startup` 开启时启动自动运行。</description>
+			 校验一个 mod：manifest 完整性、main_script 可加载、数据 JSON 可解析、JSON `"id"` 与路径推断 id 交叉核对。返回 { valid, errors, warnings, checked }。`vortarismodloader/general/validate_on_startup` 开启时启动自动运行。</description>
 		</method>
 		<method name="get_mod_report" qualifiers="const">
 			<return type="Dictionary" />
@@ -525,15 +525,15 @@
 			<return type="bool" />
 			<param index="0" name="mode" type="String" />
 			<param index="1" name="scan_user" type="bool" />
-			<description>Set vortarismodloader/export_mods ("embedded"/"external"/"none") and vortarismodloader/scan_user_mods, persisted to ProjectSettings. Returns false on an unknown mode.
+			<description>Set vortarismodloader/export/export_mods ("embedded"/"external"/"none") and vortarismodloader/paths/scan_user_mods, persisted to ProjectSettings. Returns false on an unknown mode.
 
-			 设置 vortarismodloader/export_mods（"embedded"/"external"/"none"）与 vortarismodloader/scan_user_mods，写入 ProjectSettings。未知模式返回 false。</description>
+			 设置 vortarismodloader/export/export_mods（"embedded"/"external"/"none"）与 vortarismodloader/paths/scan_user_mods，写入 ProjectSettings。未知模式返回 false。</description>
 		</method>
 		<method name="get_mod_roots" qualifiers="const">
 			<return type="PackedStringArray" />
-			<description>Configured mod root directories (vortarismodloader/mod_paths; default ["res://mods", "res://mods-unpacked"]). `.pck` files under a root are mounted read-only at startup.
+			<description>Configured mod root directories (vortarismodloader/paths/mod_paths; default ["res://mods", "res://mods-unpacked"]). `.pck` files under a root are mounted read-only at startup.
 
-			 已配置的 mod 根目录（vortarismodloader/mod_paths；默认 ["res://mods", "res://mods-unpacked"]）。根目录下的 `.pck` 文件会在启动时以只读方式挂载。</description>
+			 已配置的 mod 根目录（vortarismodloader/paths/mod_paths；默认 ["res://mods", "res://mods-unpacked"]）。根目录下的 `.pck` 文件会在启动时以只读方式挂载。</description>
 		</method>
 		<method name="install_root">
 			<return type="String" />
@@ -557,15 +557,15 @@
 		</method>
 		<method name="get_error_summary" qualifiers="const">
 			<return type="String" />
-			<description>Human-readable startup error summary ("&lt;mod&gt;: &lt;err&gt;" lines, one per error, empty when clean). This is what is printed to the console (and shown in the error dialog) after a scan/finish_startup when `vortarismodloader/show_error_dialogs` is on.
+			<description>Human-readable startup error summary ("&lt;mod&gt;: &lt;err&gt;" lines, one per error, empty when clean). This is what is printed to the console (and shown in the error dialog) after a scan/finish_startup when `vortarismodloader/general/show_error_dialogs` is on.
 
-			 人类可读的启动错误摘要（每行 "&lt;mod&gt;: &lt;err&gt;"，无错误时为空）。扫描/finish_startup 后打印到控制台（`vortarismodloader/show_error_dialogs` 开启时显示在错误弹窗中）的内容。</description>
+			 人类可读的启动错误摘要（每行 "&lt;mod&gt;: &lt;err&gt;"，无错误时为空）。扫描/finish_startup 后打印到控制台（`vortarismodloader/general/show_error_dialogs` 开启时显示在错误弹窗中）的内容。</description>
 		</method>
 		<method name="get_debug_log" qualifiers="const">
 			<return type="PackedStringArray" />
-			<description>Recent advanced-debug lines (gated by `vortarismodloader/debug_output`), each prefixed "[vortarismodloader][dbg]". Empty when the setting is off.
+			<description>Recent advanced-debug lines (gated by `vortarismodloader/general/debug_output`), each prefixed "[vortarismodloader][dbg]". Empty when the setting is off.
 
-			 最近的高级调试行（由 `vortarismodloader/debug_output` 门控），每行前缀 "[vortarismodloader][dbg]"。设置关闭时为空。</description>
+			 最近的高级调试行（由 `vortarismodloader/general/debug_output` 门控），每行前缀 "[vortarismodloader][dbg]"。设置关闭时为空。</description>
 		</method>
 		<method name="clear_debug_log">
 			<return type="void" />
@@ -650,9 +650,9 @@
 		<method name="save_registry">
 			<return type="int" />
 			<param index="0" name="path" type="String" default="&quot;&quot;" />
-			<description>Persist the registry to JSON. Empty path uses the project-level path (vortarismodloader/registry_path, default res://vml/registry.json); when res:// is read-only (exports) it falls back to user://vml/registry.json. Returns an Error code.
+			<description>Persist the registry to JSON. Empty path uses the project-level path (vortarismodloader/paths/registry_path, default res://vml/registry.json); when res:// is read-only (exports) it falls back to user://vml/registry.json. Returns an Error code.
 
-			 把注册表持久化为 JSON。空路径使用项目级路径（vortarismodloader/registry_path，默认 res://vml/registry.json）；res:// 只读（导出）时回退 user://vml/registry.json。返回 Error 码。</description>
+			 把注册表持久化为 JSON。空路径使用项目级路径（vortarismodloader/paths/registry_path，默认 res://vml/registry.json）；res:// 只读（导出）时回退 user://vml/registry.json。返回 Error 码。</description>
 		</method>
 		<method name="load_registry">
 			<return type="int" />

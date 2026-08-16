@@ -8,6 +8,8 @@
 #include <godot_cpp/core/property_info.hpp>
 #include <godot_cpp/godot.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/packed_string_array.hpp>
+#include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/variant.hpp>
 
 #include "gdscript/vml_hot_reloader.h"
@@ -18,28 +20,65 @@ using namespace godot;
 
 static Ref<VMLResourceRouter> g_router;
 
-// 0.3.0 project settings. Registered so they show up in the Project Settings
-// editor with a sensible default; get_setting(name, default) supplies the default
-// when unset. `set_setting` must come first: add_property_info only attaches
-// editor metadata to an existing setting.
+// 0.3.1 project settings, organized under tiered categories (general / paths /
+// export) matching the VortarisCSV/VortarisECS layout:
+//
+//   vortarismodloader/general/{verbose,show_error_dialogs,debug_output,
+//                              auto_finish_startup,validate_on_startup,database_mode}
+//   vortarismodloader/paths/{mod_paths,registry_path,scan_user_mods}
+//   vortarismodloader/export/{export_mods}
+//
+// Registered so they show up in the Project Settings editor with a sensible
+// default; get_ml_setting() (core/vml_settings.h) supplies the default when unset
+// and falls back to the legacy flat path vortarismodloader/<name> (0.3.0) for
+// backward compatibility. `set_setting` must come first: add_property_info only
+// attaches editor metadata to an existing setting.
 static void register_vml_project_settings() {
 	ProjectSettings *ps = ProjectSettings::get_singleton();
-	const char *settings[][3] = {
-		{ "vortarismodloader/show_error_dialogs", "show a modal dialog listing mod errors at startup/rescan (non-headless only)", "false" },
-		{ "vortarismodloader/debug_output", "advanced [vortarismodloader][dbg] debug logging (scan, registry, hooks, data, packs)", "false" },
+
+	PackedStringArray default_mod_paths;
+	default_mod_paths.push_back("res://mods");
+	default_mod_paths.push_back("res://mods-unpacked");
+
+	struct VMLSettingDef {
+		const char *category;
+		const char *name;
+		Variant::Type type;
+		PropertyHint hint;
+		const char *hint_string;
+		Variant default_value;
 	};
-	for (const auto &s : settings) {
-		// Only write the default when the setting is absent. Writing unconditionally
-		// reset a user's project.godot value (e.g. show_error_dialogs=true) back to
-		// the default on every startup.
-		if (!ps->has_setting(StringName(s[0]))) {
-			ps->set_setting(StringName(s[0]), s[2][0] == 't' ? Variant(true) : Variant(false));
+	const VMLSettingDef settings[] = {
+		{ "general", "verbose", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "detailed load logging", false },
+		{ "general", "show_error_dialogs", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "show a modal dialog listing mod errors at startup/rescan (non-headless only)", false },
+		{ "general", "debug_output", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "advanced [vortarismodloader][dbg] debug logging (scan, registry, hooks, data, packs)", false },
+		{ "general", "auto_finish_startup", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "auto-run finish_startup() once the scene tree is ready", false },
+		{ "general", "validate_on_startup", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "validate mods at startup; problems are marked but never refuse to boot", true },
+		{ "general", "database_mode", Variant::STRING, PropertyHint::PROPERTY_HINT_ENUM, "data,all,off", "data" },
+		{ "paths", "mod_paths", Variant::PACKED_STRING_ARRAY, PropertyHint::PROPERTY_HINT_NONE, "root directories scanned for mods and .pck packs", default_mod_paths },
+		{ "paths", "registry_path", Variant::STRING, PropertyHint::PROPERTY_HINT_NONE, "project-level registry file (res://vml/registry.json; falls back to user://vml/registry.json in read-only exports)", "res://vml/registry.json" },
+		{ "paths", "scan_user_mods", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "scan non-res:// mod roots at boot", true },
+		{ "export", "export_mods", Variant::STRING, PropertyHint::PROPERTY_HINT_ENUM, "embedded,external,none", "embedded" },
+	};
+	for (const VMLSettingDef &s : settings) {
+		const String new_path = String("vortarismodloader/") + s.category + String("/") + s.name;
+		const String old_path = String("vortarismodloader/") + s.name;
+		// Only write when the new tiered key is absent. Writing unconditionally reset
+		// a user's project.godot value back to the default on every startup (F4 fix);
+		// when a legacy flat value exists, migrate it so the editor shows the real
+		// value and behavior is preserved without relying on runtime fallback.
+		if (!ps->has_setting(new_path)) {
+			if (ps->has_setting(old_path)) {
+				ps->set_setting(new_path, ps->get_setting(old_path));
+			} else {
+				ps->set_setting(new_path, s.default_value);
+			}
 		}
 		Dictionary pi;
-		pi["name"] = StringName(s[0]);
-		pi["type"] = Variant::BOOL;
-		pi["hint"] = PropertyHint::PROPERTY_HINT_NONE;
-		pi["hint_string"] = String(s[1]);
+		pi["name"] = new_path;
+		pi["type"] = s.type;
+		pi["hint"] = s.hint;
+		pi["hint_string"] = String(s.hint_string);
 		ps->add_property_info(pi);
 	}
 }

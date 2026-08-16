@@ -13,7 +13,7 @@
 - **声明式钩子**：hook 点即 id，三种语义——`invoke_hook`（链式改参数/返回值）、`emit_hook`（广播）、`check_hook`（判定拦截）。无正则源码重写。
 - **覆盖仲裁**：后加载的 mod 覆盖先加载者（优先级 + 显式注册 + mod id 兜底，确定性）。
 - **运行时生命周期**：启动早期扫描（早于 autoload）、运行时动态 enable/disable/load/unload 整个 mod、zip 事务性安装。
-- **开发热重载**：mtime+size 轮询，改 mod 文件即时生效（数据/资源刷新 + 信号通知）；`vortarismodloader/verbose` 开启详细加载日志。
+- **开发热重载**：mtime+size 轮询，改 mod 文件即时生效（数据/资源刷新 + 信号通知）；`vortarismodloader/general/verbose` 开启详细加载日志。
 - **原生 `vml://` 加载**：`load("vml://ns:path")`，C++ 注册的 ResourceFormatLoader 在导出版也可用。
 - **易上手 API**：`get`/`load`/`exists`/`get_mod_path` 等便捷别名，几十秒上手。
 - **id 元数据与预留**：`get_id_info`（完整状态）、`get_id_data_type`、`set_id_type`/`list_ids_by_type`（按类型过滤）、`reserve`/`unreserve`（预留命名）。
@@ -69,12 +69,12 @@ var dmg: float = VML.invoke_hook("game:modify_damage", [10.0], 10.0)  # 钩子
 
 - **`register` 与 `register_id`**：`VML.register(id, path)` 不变。新增的 `VML.register_id(id, value, priority)` 注册直接 Variant 提供者（无文件）。两者别混淆——路径形式仍叫 `register`。
 - **`has` 新语义**：`has()` 现在在 id 有实时内存数据库条目时也返回 true（此前仅路由/预留）。用 `has_data(id)` 专门查询数据库。
-- **`finish_startup` 与 `finish_startup_auto`**：`finish_startup()` 不变（bootstrap autoload 里调用）。`finish_startup_auto()` 延迟并在场景树就绪前重试，保证 autoload `_ready` 先跑——设置 `vortarismodloader/auto_finish_startup` 可自动触发。
+- **`finish_startup` 与 `finish_startup_auto`**：`finish_startup()` 不变（bootstrap autoload 里调用）。`finish_startup_auto()` 延迟并在场景树就绪前重试，保证 autoload `_ready` 先跑——设置 `vortarismodloader/general/auto_finish_startup` 可自动触发。
 - **`get_mod_errors` 与 `get_mod_report`/`get_errors_summary`**：`get_mod_errors` 仍只含 errors。要含 warnings 用 `get_mod_report(id)`；一次拿全部问题 mod 用 `get_errors_summary()`；`get_startup_report()` 给启动聚合。
 - **`get_all` 新语义**：现返回注册表 id 与已加载数据库 id 的并集（值惰性解析）。结构 `{ canonical_id: value }` 不变。
-- **`set_data` 持久化**：`set_data(id, value, true)` 将值作为项目级 `__registry__` 条目（优先级 0，mod 可覆盖）持久化。注册表默认路径改为 `res://vml/registry.json`（`vortarismodloader/registry_path` 可配置），res:// 只读（导出）时回退 `user://vml/registry.json`。
-- **自定义 mod 根**：mod 从 `vortarismodloader/mod_paths`（默认 `["res://mods-unpacked", "user://vml/mods"]`）扫描。运行时用 `add_mod_root`/`remove_mod_root` 增删；`rescan()` 尊重自定义根。
-- **导出策略**：`vortarismodloader/export_mods`（`embedded`/`external`/`none`）+ `vortarismodloader/scan_user_mods` 控制扫描范围；`get_mod_package_plan()` 查询、`set_export_policy()` 设置。
+- **`set_data` 持久化**：`set_data(id, value, true)` 将值作为项目级 `__registry__` 条目（优先级 0，mod 可覆盖）持久化。注册表默认路径改为 `res://vml/registry.json`（`vortarismodloader/paths/registry_path` 可配置），res:// 只读（导出）时回退 `user://vml/registry.json`。
+- **自定义 mod 根**：mod 从 `vortarismodloader/paths/mod_paths`（默认 `["res://mods-unpacked", "user://vml/mods"]`）扫描。运行时用 `add_mod_root`/`remove_mod_root` 增删；`rescan()` 尊重自定义根。
+- **导出策略**：`vortarismodloader/export/export_mods`（`embedded`/`external`/`none`）+ `vortarismodloader/paths/scan_user_mods` 控制扫描范围；`get_mod_package_plan()` 查询、`set_export_policy()` 设置。
 
 ## 文档
 

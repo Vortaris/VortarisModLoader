@@ -4,7 +4,7 @@ By default the loader preloads every **data** id (`.json/.csv/.tres`) into an
 in-memory repository at startup. Id lookups then are O(1) hash hits with zero
 file I/O — the "load everything, then ask fast" model.
 
-## Modes (`vortarismodloader/database_mode`)
+## Modes (`vortarismodloader/general/database_mode`)
 
 | mode | behavior |
 |---|---|

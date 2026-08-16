@@ -31,12 +31,12 @@ all data) and traditional games alike (texture/model/scene overrides).
 - **Pck distribution**: `.pck` packs under a mod root are mounted read-only at
   startup and their content indexed (namespaced under `mods/<mod_id>/`).
 - **Error dialogs + console**: mod errors are always printed to the console;
-  `vortarismodloader/show_error_dialogs` shows a modal dialog (non-headless).
-- **Advanced debug log**: `vortarismodloader/debug_output` emits
+  `vortarismodloader/general/show_error_dialogs` shows a modal dialog (non-headless).
+- **Advanced debug log**: `vortarismodloader/general/debug_output` emits
   `[vortarismodloader][dbg]` lines (scan, registry, hooks, data, packs) and
   `get_debug_log()` returns the recent lines.
 - **Dev hot reload**: mtime polling — edit a mod file and it applies live;
-  `vortarismodloader/verbose` enables detailed load logging.
+  `vortarismodloader/general/verbose` enables detailed load logging.
 - **Native `vml://` loading**: `load("vml://ns:path")` works in exported builds.
 - **Beginner-friendly API**: `get`/`load`/`exists`/`get_mod_path` sugar.
 - **Id metadata & reservation**: `get_id_info` (full status), `get_id_data_type`,
@@ -112,9 +112,9 @@ See [docs/mod_format.md](docs/mod_format.md).
   startup; content is indexed with the normal scanner rules. Pcks are the
   recommended way to ship mods.
 - **Error dialog + console**: mod errors are printed to the console at
-  startup/rescan; `vortarismodloader/show_error_dialogs` (default false) shows a
+  startup/rescan; `vortarismodloader/general/show_error_dialogs` (default false) shows a
   modal dialog (non-headless only).
-- **Advanced debug output**: `vortarismodloader/debug_output` (default false)
+- **Advanced debug output**: `vortarismodloader/general/debug_output` (default false)
   emits `[vortarismodloader][dbg]` lines; `get_debug_log()`/`clear_debug_log()`
   expose the recent lines.
 - **Default mod roots** are now `["res://mods", "res://mods-unpacked"]`
@@ -159,7 +159,7 @@ See [docs/mod_format.md](docs/mod_format.md).
 - **`finish_startup` vs `finish_startup_auto`**: `finish_startup()` is unchanged
   (call it from a bootstrap autoload). `finish_startup_auto()` defers and retries
   until the scene tree is ready, so autoload `_ready` runs first — set
-  `vortarismodloader/auto_finish_startup` to trigger it automatically.
+  `vortarismodloader/general/auto_finish_startup` to trigger it automatically.
 - **`get_mod_errors` vs `get_mod_report`/`get_errors_summary`**: `get_mod_errors`
   stays errors-only. For warnings too, use `get_mod_report(id)`; for every
   problematic mod at once, `get_errors_summary()`; `get_startup_report()` gives
@@ -170,13 +170,13 @@ See [docs/mod_format.md](docs/mod_format.md).
 - **`set_data` persistence**: `set_data(id, value, true)` persists the value as a
   project-level `__registry__` entry (priority 0, so mods override it). The
   registry now defaults to `res://vml/registry.json`
-  (`vortarismodloader/registry_path`), falling back to `user://vml/registry.json`
+  (`vortarismodloader/paths/registry_path`), falling back to `user://vml/registry.json`
   in read-only exports.
-- **Custom mod roots**: mods are scanned from `vortarismodloader/mod_paths`
+- **Custom mod roots**: mods are scanned from `vortarismodloader/paths/mod_paths`
   (default `["res://mods", "res://mods-unpacked"]`). Add/remove roots at
   runtime with `add_mod_root`/`remove_mod_root`; `rescan()` respects them.
-- **Export policy**: `vortarismodloader/export_mods`
-  (`embedded`/`external`/`none`) + `vortarismodloader/scan_user_mods` control what
+- **Export policy**: `vortarismodloader/export/export_mods`
+  (`embedded`/`external`/`none`) + `vortarismodloader/paths/scan_user_mods` control what
   gets scanned; query with `get_mod_package_plan()` and set with
   `set_export_policy()`.
 

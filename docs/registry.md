@@ -17,7 +17,7 @@ game code:  load("vml://main_menu_bg")  ->  automatically the mod's version
 - The registry is loaded automatically at `VML.finish_startup()`:
   `res://registry.json` (legacy built-in defaults), then the project-level path
   (default `res://vml/registry.json`, configurable via
-  `vortarismodloader/registry_path`), then `user://vml/registry.json` (legacy edits).
+  `vortarismodloader/paths/registry_path`), then `user://vml/registry.json` (legacy edits).
 
 ## API
 

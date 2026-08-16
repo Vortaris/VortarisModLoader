@@ -17,7 +17,7 @@ installs them, and how to configure scanning for your export.
 
 ## Where mods live
 
-Default mod roots (`vortarismodloader/mod_paths`):
+Default mod roots (`vortarismodloader/paths/mod_paths`):
 
 ```
 res://mods            # .pck packs + zip-installed mods (dev writable)
@@ -64,13 +64,13 @@ from the `mods/<mod_id>/` folder name.
 
 | Project setting | Values | Meaning |
 |---|---|---|
-| `vortarismodloader/mod_paths` | PackedStringArray | Root directories scanned for mods and `.pck` packs. Default `["res://mods", "res://mods-unpacked"]`. |
-| `vortarismodloader/scan_user_mods` | bool (default true) | When false, non-res:// roots are **not** scanned at boot. |
-| `vortarismodloader/export_mods` | `"embedded"` / `"external"` / `"none"` | `embedded` (default): scan res:// roots too. `external`: only user/custom roots. `none`: no scanning at all. |
-| `vortarismodloader/validate_on_startup` | bool (default true) | Validate mods at startup; problems are marked but never refuse to boot. |
-| `vortarismodloader/registry_path` | String | Project-level registry file. Default `res://vml/registry.json`; falls back to `user://vml/registry.json` when res:// is read-only (exports). |
-| `vortarismodloader/show_error_dialogs` | bool (default false) | Show a modal dialog listing mod errors at startup/rescan (non-headless only). Errors are always printed to the console. |
-| `vortarismodloader/debug_output` | bool (default false) | Advanced `[vortarismodloader][dbg]` logging (scan, registry, hooks, data, packs). |
+| `vortarismodloader/paths/mod_paths` | PackedStringArray | Root directories scanned for mods and `.pck` packs. Default `["res://mods", "res://mods-unpacked"]`. |
+| `vortarismodloader/paths/scan_user_mods` | bool (default true) | When false, non-res:// roots are **not** scanned at boot. |
+| `vortarismodloader/export/export_mods` | `"embedded"` / `"external"` / `"none"` | `embedded` (default): scan res:// roots too. `external`: only user/custom roots. `none`: no scanning at all. |
+| `vortarismodloader/general/validate_on_startup` | bool (default true) | Validate mods at startup; problems are marked but never refuse to boot. |
+| `vortarismodloader/paths/registry_path` | String | Project-level registry file. Default `res://vml/registry.json`; falls back to `user://vml/registry.json` when res:// is read-only (exports). |
+| `vortarismodloader/general/show_error_dialogs` | bool (default false) | Show a modal dialog listing mod errors at startup/rescan (non-headless only). Errors are always printed to the console. |
+| `vortarismodloader/general/debug_output` | bool (default false) | Advanced `[vortarismodloader][dbg]` logging (scan, registry, hooks, data, packs). |
 
 ## Embedded vs external mods
 
@@ -92,5 +92,5 @@ VML.add_mod_root("user://my_mods")
 VML.rescan()
 ```
 
-Roots are persisted to ProjectSettings (`vortarismodloader/mod_paths`), so
+Roots are persisted to ProjectSettings (`vortarismodloader/paths/mod_paths`), so
 `rescan()` (and the next boot) pick them up. Remove with `VML.remove_mod_root()`.
