@@ -100,6 +100,33 @@ static void register_vml_project_settings() {
 		pi["hint_string"] = String(s.hint_string);
 		ps->add_property_info(pi);
 	}
+
+	// 0.3.2 cleanup: the legacy PackedStringArray mod-path settings (tiered
+	// `paths/mod_paths` and flat `vortarismodloader/mod_paths`) are gone from the
+	// editor — the UI now uses the two dir settings. Migrate their values into
+	// mod_dir/unpacked_dir when those are still at their defaults, then clear the
+	// arrays so they stop showing in Project Settings / lingering in project.godot.
+	const String default_mod_dir = "res://mods";
+	const String default_unpacked = "res://mods-unpacked";
+	const char *legacy_arrays[] = {
+		"vortarismodloader/paths/mod_paths",
+		"vortarismodloader/mod_paths",
+	};
+	for (const char *legacy : legacy_arrays) {
+		if (!ps->has_setting(legacy)) {
+			continue;
+		}
+		const godot::Array arr = ps->get_setting(legacy);
+		if (arr.size() > 0) {
+			if (ps->get_setting("vortarismodloader/paths/mod_dir") == Variant(default_mod_dir)) {
+				ps->set_setting("vortarismodloader/paths/mod_dir", arr[0]);
+			}
+			if (arr.size() > 1 && ps->get_setting("vortarismodloader/paths/unpacked_dir") == Variant(default_unpacked)) {
+				ps->set_setting("vortarismodloader/paths/unpacked_dir", arr[1]);
+			}
+		}
+		ps->clear(legacy);
+	}
 }
 
 void initialize_vortarismodloader_module(ModuleInitializationLevel p_level) {
