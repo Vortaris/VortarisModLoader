@@ -14,7 +14,7 @@ scons platform=windows target=template_debug arch=x86_64 api_version=4.7
 
 # Build the plugin DLL (outputs to demo/addons/vortarismodloader/bin/)
 scons -j 8 platform=windows target=template_debug arch=x86_64 build_library=False \
-      api_version=4.7 godot_cpp_path=C:/Users/Administrator/Desktop/godot-cpp-master
+      api_version=4.7 godot_cpp_path=<path-to-godot-cpp>
 
 # Functional smoke (expect "=== VortarisModLoader Demo OK ===", exit 0)
 godot --headless --path demo --quit
