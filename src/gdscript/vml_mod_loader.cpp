@@ -51,6 +51,26 @@ PackedStringArray _ml_string_array(const Variant &p_value) {
 	return out;
 }
 
+// Issue #5: the base-layer auto-scan directories. Previously hardcoded to
+// res://assets + res://data; now configurable via
+// `vortarismodloader/paths/base_dirs` (empty array = base scanning disabled).
+// Defaults keep the historical behavior for projects that never touch it.
+std::vector<String> _ml_base_dirs() {
+	PackedStringArray def;
+	def.push_back("res://assets");
+	def.push_back("res://data");
+	const PackedStringArray arr = _ml_string_array(
+			vortarismodloader::get_ml_setting("paths", "base_dirs", def));
+	std::vector<String> out;
+	for (int64_t i = 0; i < arr.size(); ++i) {
+		const String d = String(arr[i]).strip_edges();
+		if (!d.is_empty()) {
+			out.push_back(d);
+		}
+	}
+	return out;
+}
+
 } // namespace
 
 VMLModLoader *VMLModLoader::singleton = nullptr;
@@ -62,6 +82,17 @@ VMLModLoader::VMLModLoader() {
 	scan_base_layer();
 	scan_mods();
 	initialized_ = true;
+
+	// Issue #4: load the persisted registry (placeholders / routes) HERE, at
+	// construction time, instead of only in finish_startup(). The singleton is
+	// created at SCENE init level — before autoloads and before the main scene —
+	// so a synchronous load("vml://<placeholder>") in the main scene's _ready()
+	// now resolves. finish_startup() still re-runs the same idempotent loads as
+	// a fallback (registry providers are singleton markers: re-registration
+	// replaces, never duplicates).
+	load_registry("res://registry.json");
+	load_registry(registry_path());
+	load_registry("user://vml/registry.json");
 
 	// Unified load: honor vortarismodloader/general/database_mode ("data"/"all"/"off").
 	database_mode_ = mode_from_string(godot::Variant(
@@ -109,9 +140,20 @@ void VMLModLoader::scan_base_layer() {
 	load_order_.clear();
 	explicit_paths_.clear();
 	overlays_.add_source("base", true);
-	log_debug("scan: base layer (res://assets, res://data)");
-	vortarismodloader::Scanner::scan_implicit_dir("res://assets", "base", 0, registry_);
-	vortarismodloader::Scanner::scan_implicit_dir("res://data", "base", 0, registry_);
+	// Issue #5: base dirs come from `paths/base_dirs` (default res://assets +
+	// res://data; empty disables base scanning entirely).
+	const std::vector<String> base_dirs = _ml_base_dirs();
+	String listed;
+	for (const String &d : base_dirs) {
+		if (!listed.is_empty()) {
+			listed += ", ";
+		}
+		listed += d;
+	}
+	log_debug(String("scan: base layer (") + (listed.is_empty() ? String("(disabled)") : listed) + String(")"));
+	for (const String &d : base_dirs) {
+		vortarismodloader::Scanner::scan_implicit_dir(d, "base", 0, registry_);
+	}
 }
 
 void VMLModLoader::scan_mods() {
@@ -981,7 +1023,9 @@ Error VMLModLoader::save_registry(const String &p_path) {
 	}
 	f->store_string(JSON::stringify(data, "  "));
 	f->close();
-	print_line(String("VML: registry saved (") + String::num_int64((int64_t)registry_map_.size()) +
+	// Issue #1: per-event operational log — verbose-gated so a quiet startup
+	// stays quiet (registry saved/loaded used to print unconditionally).
+	log_verbose(String("registry saved (") + String::num_int64((int64_t)registry_map_.size()) +
 			String(" entries) -> ") + path);
 	return OK;
 }
@@ -1026,7 +1070,7 @@ Error VMLModLoader::load_registry(const String &p_path) {
 			set_registry_entry(String(k), p, entry.get("type", String()), entry.get("description", String()),
 					entry.get("placeholder", false));
 		}
-		print_line(String("VML: registry loaded from ") + p_f);
+		log_verbose(String("registry loaded from ") + p_f);
 		return OK;
 	};
 	Error err = load_file(path);
@@ -2342,8 +2386,10 @@ void VMLModLoader::log_debug(const String &p_msg) const {
 }
 
 String VMLModLoader::owning_mod(const String &p_path) const {
-	if (p_path.begins_with("res://assets/") || p_path.begins_with("res://data/")) {
-		return "base";
+	for (const String &d : _ml_base_dirs()) {
+		if (p_path.begins_with(d + String("/"))) {
+			return "base";
+		}
 	}
 	for (const ModRecord &rec : mods_) {
 		if (p_path.begins_with(rec.root + String("/"))) {
@@ -2386,11 +2432,12 @@ void VMLModLoader::reload_resources(const PackedStringArray &p_paths) {
 	}
 	for (const String &mid : affected) {
 		if (mid == "base") {
-			// Re-scan the base layer (res://assets + res://data) and refresh its data.
+			// Re-scan the base layer (paths/base_dirs) and refresh its data.
 			registry_.remove_mod("base");
 			database_.erase_mod("base");
-			vortarismodloader::Scanner::scan_implicit_dir("res://assets", "base", 0, registry_);
-			vortarismodloader::Scanner::scan_implicit_dir("res://data", "base", 0, registry_);
+			for (const String &d : _ml_base_dirs()) {
+				vortarismodloader::Scanner::scan_implicit_dir(d, "base", 0, registry_);
+			}
 			if (database_mode_ != DatabaseMode::OFF) {
 				for (const vortarismodloader::ResourceId &id : registry_.all_ids()) {
 					const vortarismodloader::ProviderEntry *e = registry_.lookup(id);
@@ -2436,8 +2483,9 @@ void VMLModLoader::reload_resources(const PackedStringArray &p_paths) {
 
 PackedStringArray VMLModLoader::get_content_roots() const {
 	PackedStringArray roots;
-	roots.push_back("res://assets");
-	roots.push_back("res://data");
+	for (const String &d : _ml_base_dirs()) {
+		roots.push_back(d);
+	}
 	for (const ModRecord &rec : mods_) {
 		if (!rec.enabled) {
 			continue;
@@ -2483,6 +2531,15 @@ void VMLModLoader::rescan() {
 	explicit_paths_.clear();
 	scan_base_layer(); // clears registry / overlays / mods_ / load_order_
 	scan_mods();
+	// Issue #10: scan_base_layer() cleared the registry index, and the persisted
+	// registry (placeholders / routes / explicit entries) is only loaded by
+	// finish_startup() — which has usually already run once by the time rescan()
+	// is called. Without this replay, every __registry__ provider silently
+	// vanished after a rescan and load("vml://<placeholder>") started failing.
+	// Re-run the same three-file load finish_startup() uses (idempotent merges).
+	load_registry("res://registry.json");
+	load_registry(registry_path());
+	load_registry("user://vml/registry.json");
 	database_.clear();
 	preload_database();
 	// Re-validate after a re-scan so the error/warning summary stays accurate.

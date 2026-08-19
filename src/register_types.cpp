@@ -77,6 +77,7 @@ static void register_vml_project_settings() {
 		{ "paths", "unpacked_dir", Variant::STRING, PropertyHint::PROPERTY_HINT_DIR, "", "res://mods-unpacked" },
 		{ "paths", "registry_path", Variant::STRING, PropertyHint::PROPERTY_HINT_FILE_PATH, "*.json", "res://vml/registry.json" },
 		{ "paths", "scan_user_mods", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "", true },
+		{ "paths", "scan_adjacent_mods", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "", true },
 		{ "export", "export_mods", Variant::STRING, PropertyHint::PROPERTY_HINT_ENUM, "embedded,external,none", "embedded" },
 	};
 	for (const VMLSettingDef &s : settings) {
@@ -105,6 +106,39 @@ static void register_vml_project_settings() {
 		pi["type"] = s.type;
 		pi["hint"] = s.hint;
 		pi["hint_string"] = String(s.hint_string);
+		ps->add_property_info(pi);
+	}
+
+	// 0.4.0 array settings (defaults are constructed at runtime, so they cannot
+	// live in the literal table above). Same "write only when absent" rule.
+	struct VMLArraySettingDef {
+		const char *path;
+		PackedStringArray default_value;
+	};
+	PackedStringArray default_base_dirs;
+	default_base_dirs.push_back("res://assets");
+	default_base_dirs.push_back("res://data");
+	PackedStringArray default_exclude_exts;
+	default_exclude_exts.push_back(".import");
+	default_exclude_exts.push_back(".uid");
+	default_exclude_exts.push_back(".tmp");
+	default_exclude_exts.push_back(".bak");
+	const VMLArraySettingDef array_settings[] = {
+		// Issue #5: base-layer auto-scan directories (empty = disabled).
+		{ "vortarismodloader/paths/base_dirs", default_base_dirs },
+		// Issue #6: extension blacklist for implicit scans.
+		{ "vortarismodloader/paths/scan_exclude_extensions", default_exclude_exts },
+		// Issue #6: optional whitelist; when non-empty ONLY these extensions are
+		// registered (blacklist ignored).
+		{ "vortarismodloader/paths/scan_extensions", PackedStringArray() },
+	};
+	for (const VMLArraySettingDef &s : array_settings) {
+		if (!ps->has_setting(s.path)) {
+			ps->set_setting(s.path, s.default_value);
+		}
+		Dictionary pi;
+		pi["name"] = String(s.path);
+		pi["type"] = int(Variant::PACKED_STRING_ARRAY);
 		ps->add_property_info(pi);
 	}
 

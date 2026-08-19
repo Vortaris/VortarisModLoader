@@ -58,6 +58,8 @@ func _get_plugin_icon() -> Texture2D:
 		return icon
 	return EditorInterface.get_editor_theme().get_icon("Node", "EditorIcons")
 
-
-func _handles(_object: Object) -> bool:
-	return true
+# NOTE: no _handles() override here (issue #2). A previous revision returned
+# true unconditionally, which told the editor "this plugin edits EVERY object"
+# and yanked the user to the VML main screen on every double-clicked resource.
+# _has_main_screen() alone registers the VML tab; the default _handles() == false
+# keeps double-clicks on their own editors.
