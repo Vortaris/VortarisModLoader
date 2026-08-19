@@ -8,6 +8,17 @@
 
 面向组合/ECS 数据驱动游戏（系统、组件、实体都是数据），也支持传统游戏的贴图重载、模型替换、场景覆盖。
 
+## 0.4.0 新特性
+
+- **Tags 标签**——`<content>/<ns>/tags/**.json` 把内容 id 分组，任何 mod 都能往一个集合里追加成员；查询用 `tag_has` / `tag_resolve` / `tags_of` / `list_tags`。
+- **条件加载**——数据文件首行 `@condition,mod_loaded:x`（另有 `tags_populated:`、`registry_contains:`、`any/all_mods_loaded:`、`not:`）控制该文件是否加载。
+- **生命周期阶段**——mod_main 可选 `vml_preload` / `vml_register` / `vml_setup` / `vml_ready`，另有 `defer_register(ns, callable)` 延迟注册。
+- **单一 mods 目录**——文件夹 = 源码 mod，`*.pck` = 打包 mod，并排放在 `paths/mod_dir` 下（平行的 `mods-unpacked` 已弃用）。
+- **编辑器强制挂载 pck**；导出版自动扫描 `<exe 目录>/mods`。
+- `list_ids(prefix, include_database=true)` 一并列出仅 `set_data` 写入的内存 id。
+
+完整改动见 [RELEASE_NOTES.md](RELEASE_NOTES.md)。
+
 ## 特性
 
 - **id 索引一切**：`namespace:path` 唯一标识，命名空间防冲突；隐式路径约定——`assets/<ns>/<path>.<ext>` / `data/<ns>/<path>.<ext>` 放文件即得 id `ns:path`，零声明。

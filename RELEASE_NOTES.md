@@ -1,5 +1,83 @@
 # Release Notes
 
+## 0.4.0
+
+Theme: **composition-first**. Minecraft-style tags and conditional data let
+content sets be extended by any mod without central coordination; a single
+unified mods directory and force-mounted editor packs streamline the dev
+workflow; plus a batch of fixes from the 11 open issues and an audit pass.
+
+### Composition systems (new)
+
+- **Tags** — files at `<content>/<ns>/tags/**.json` define named groups of
+  content ids. Merge in load order (`replace:true` resets first), nested
+  `#ns:tag` refs resolved cycle-safe, `{"id","required":false}` members
+  dropped when absent. Query: `tag_has`, `tag_resolve`, `tags_of`, `list_tags`.
+  The scanner never registers the `tags/` subtree as content ids.
+- **Conditional data loading** — leading `@condition,<term>` directive(s) in a
+  `.json`/`.csv` data file gate the load. Predicates: `mod_loaded:`,
+  `any_mods_loaded:`/`all_mods_loaded:` (pipe-separated), `tags_populated:`,
+  `registry_contains:`, plus `not:` negation. Unmet → file skipped silently
+  (debug-logged), so cross-mod optional data never spams errors.
+- **Mod lifecycle phases** — optional `vml_preload` / `vml_register` /
+  `vml_setup` run in load order after every mod_main is instantiated;
+  `vml_ready` runs at the end of startup as the safe cross-mod query point.
+  Mods without a method are skipped (old mods unaffected).
+- **`defer_register(ns, callable)`** — queues a callable to run during the
+  registration phase of the next `finish_startup()`/`rescan()`, so libs can
+  register ids that depend on other mods without caring about load order.
+- **`list_ids(prefix, include_database=false)`** — opt-in surfaces
+  `set_data`-only (memory) ids; default stays registry/file-backed only.
+
+### Directory & pack workflow (#11, #8, #9)
+
+- **Single mods directory (#11)** — `paths/mod_dir` is the ONE entry point:
+  folders are source mods, `*.pck` are packed mods, side by side. The parallel
+  `mods-unpacked` layout is deprecated (setting now defaults empty; a one-time
+  migration notice prints while a project still configures it). The mod wizard
+  creates new mods under `mod_dir`.
+- **Exe-adjacent mods in exports (#8)** — in an exported runtime, VML also
+  scans `<exe dir>/<mod_dir basename>` (`paths/scan_adjacent_mods`, default
+  on). Drop player `.pck` mods next to the executable and they load with no
+  game code. Embedded res:// roots stay first (curated content wins).
+- **Force-mounted editor packs (#9)** — packs in the mods directory are mounted
+  in the editor too (dev-stage pcks are prerequisites/dependencies). Godot
+  cannot unmount a pack mid-session, so `exclude_pack` / `include_pack` manage
+  a restart-based unload (user://vml/excluded_pcks.json) for debugging.
+
+### Fixes (open issues)
+
+- **#1** registry saved/loaded logs demoted to verbose-gated.
+- **#2** dropped the `_handles()==true` override that yanked the editor to the
+  VML tab on every double-clicked resource.
+- **#4** the persisted registry now loads at construction (was deferred), so a
+  synchronous `load("vml://…")` in the main scene's `_ready()` resolves.
+- **#5** base-layer auto-scan dirs are configurable (`paths/base_dirs`, default
+  `res://assets`,`res://data`; empty disables base scanning).
+- **#6** scanner extension filter: `paths/scan_exclude_extensions` (default
+  `.import`,`.uid`,`.tmp`,`.bak`) + optional `paths/scan_extensions` whitelist,
+  so Godot metadata files no longer register as bogus ids.
+- **#10** `rescan()` re-loads the persisted registry after scanning (it was
+  cleared and never restored, dropping placeholders/routes).
+- **#3 / #7** editor GUI: copy support (Ctrl+C / right-click on every tree,
+  selectable detail labels) and auto-registered ids are now editable/remappable
+  in the VML IDs panel.
+
+### Audit hardening
+
+- Parse-failure path cache: a broken data file is reported once, not re-parsed
+  on every access (`clear_failed_paths` resets it on rescan/reload).
+- Shutdown correctness: the singleton destructor no longer dereferences the
+  hot-reloader (the tree frees it first) and clears LoaderBackend statics at
+  module-uninit time (was exiting with a junk code); frees VML-parented
+  mod_main children that previously leaked as ObjectDB instances.
+
+### Tests
+
+Regression suite grows to **402 assertions** (all green), including the new
+composition systems; fixtures live in a throwaway user:// mod (res:// becomes
+read-only once packs are mounted).
+
 ## 0.3.3
 
 CHANT-driven quality-of-life API additions: type queries, field-level data

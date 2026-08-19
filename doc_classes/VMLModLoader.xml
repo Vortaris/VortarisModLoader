@@ -125,9 +125,66 @@
 		<method name="list_ids" qualifiers="const">
 			<return type="Dictionary" />
 			<param index="0" name="prefix" type="String" default="&quot;&quot;" />
-			<description>All ids as { namespace: PackedStringArray }, optionally filtered by a dotted prefix (e.g. `"game:units."`).
+			<param index="1" name="include_database" type="bool" default="false" />
+			<description>All ids as { namespace: PackedStringArray }, optionally filtered by a dotted prefix (e.g. `"game:units."`). With `include_database=true`, ids that exist only in the in-memory database (added via `set_data` and not backed by a file) are also surfaced; the default stays registry/file-backed ids only.
 
-			 所有 id，格式 { namespace: PackedStringArray }，可按点分隔前缀过滤（如 `"game:units."`）。</description>
+			 所有 id，格式 { namespace: PackedStringArray }，可按点分隔前缀过滤（如 `"game:units."`）。`include_database=true` 时一并列出仅存在于内存数据库（经 `set_data` 写入、无对应文件）的 id；默认仅列出注册表/文件 id。</description>
+		</method>
+		<method name="list_tags" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>Every tag id currently baked (0.4.0). Tags are defined by files at `<content>/<ns>/tags/**.json` and group content ids for composition.
+
+			 当前烘焙的全部 tag id（0.4.0）。tag 由 `<content>/<ns>/tags/**.json` 文件定义，用于把内容 id 分组以便组合。</description>
+		</method>
+		<method name="tag_has" qualifiers="const">
+			<return type="bool" />
+			<param index="0" name="tag" type="String" />
+			<param index="1" name="id" type="String" />
+			<description>True when member `id` belongs to `tag` (nested tags resolved).
+
+			 成员 `id` 是否属于 `tag`（嵌套 tag 已展开）。</description>
+		</method>
+		<method name="tag_resolve" qualifiers="const">
+			<return type="PackedStringArray" />
+			<param index="0" name="tag" type="String" />
+			<description>All member ids of `tag`, flattened: nested `#ns:tag` refs resolved cycle-safe, duplicates removed, `required:false` members absent from the registry dropped.
+
+			 `tag` 的全部成员 id（展平）：嵌套 `#ns:tag` 引用按无环方式展开、去重，`required:false` 且注册表中不存在的成员被丢弃。</description>
+		</method>
+		<method name="tags_of" qualifiers="const">
+			<return type="PackedStringArray" />
+			<param index="0" name="id" type="String" />
+			<description>Reverse lookup: every tag that contains member `id`.
+
+			 反查：包含成员 `id` 的全部 tag。</description>
+		</method>
+		<method name="defer_register">
+			<return type="void" />
+			<param index="0" name="ns" type="String" />
+			<param index="1" name="callable" type="Callable" />
+			<description>Queues `callable` to run once during the registration phase of the next `finish_startup()` / `rescan()` — after every mod_main is instantiated, before `vml_setup`. Lets a library register ids that depend on other mods being present without caring about load order (0.4.0).
+
+			 把 `callable` 排队到下一次 `finish_startup()` / `rescan()` 的注册阶段执行一次——在所有 mod_main 实例化之后、`vml_setup` 之前。让库无需关心加载顺序即可注册依赖其它 mod 的 id（0.4.0）。</description>
+		</method>
+		<method name="exclude_pack">
+			<return type="void" />
+			<param index="0" name="pck" type="String" />
+			<description>Adds `pck` to the exclusion list (user://vml/excluded_packs.json) so it is NOT mounted on the next editor/game start (0.4.0). Godot cannot unmount a pack mid-session, so this is a restart-based unload escape hatch for debugging.
+
+			 把 `pck` 加入排除清单（user://vml/excluded_packs.json），下次编辑器/游戏启动时不再挂载（0.4.0）。Godot 无法在会话中卸载 pck，因此这是供调试用的"重启生效"卸载逃生门。</description>
+		</method>
+		<method name="include_pack">
+			<return type="void" />
+			<param index="0" name="pck" type="String" />
+			<description>Removes `pck` from the exclusion list so it mounts again on the next start (0.4.0).
+
+			 把 `pck` 移出排除清单，下次启动恢复挂载（0.4.0）。</description>
+		</method>
+		<method name="get_excluded_packs" qualifiers="const">
+			<return type="PackedStringArray" />
+			<description>The current pack exclusion list (0.4.0).
+
+			 当前 pck 排除清单（0.4.0）。</description>
 		</method>
 		<method name="list_namespaces" qualifiers="const">
 			<return type="PackedStringArray" />

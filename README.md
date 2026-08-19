@@ -14,6 +14,21 @@ replacing the file an id points to — no game code changes needed.
 Built for composition/ECS data-driven games (systems, components, entities are
 all data) and traditional games alike (texture/model/scene overrides).
 
+## What's new in 0.4.0
+
+- **Tags** — `<content>/<ns>/tags/**.json` groups content ids so any mod can
+  extend a set; query with `tag_has` / `tag_resolve` / `tags_of` / `list_tags`.
+- **Conditional data** — `@condition,mod_loaded:x` (and `tags_populated:`,
+  `registry_contains:`, `any/all_mods_loaded:`, `not:`) gates a data file's load.
+- **Lifecycle phases** — optional `vml_preload` / `vml_register` / `vml_setup` /
+  `vml_ready` on mod_main, plus `defer_register(ns, callable)`.
+- **Single mods directory** — folders = source mods, `*.pck` = packed mods, side
+  by side under `paths/mod_dir` (the parallel `mods-unpacked` is deprecated).
+- **Editor packs force-mounted**; exports auto-scan `<exe dir>/mods`.
+- `list_ids(prefix, include_database=true)` also lists `set_data`-only ids.
+
+See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the full change log.
+
 ## Features
 
 - **Id-indexed content**: `namespace:path`; implicit path convention — drop a file
