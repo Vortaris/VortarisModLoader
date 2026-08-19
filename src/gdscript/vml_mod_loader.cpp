@@ -7,6 +7,7 @@
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/display_server.hpp>
 #include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/gd_script.hpp>
 #include <godot_cpp/classes/json.hpp>
@@ -214,7 +215,9 @@ void VMLModLoader::scan_mods() {
 	//     nothing and "external" skips the embedded res:// root, matching the
 	//     discovery loop.
 	if (!mounted_packs_.empty() && export_mode == "embedded") {
-		const String pck_mods_root = "res://mods";
+		// #11: derive the mods root from the single mod_dir setting (was
+		// hardcoded to res://mods) so a configured alternate mod_dir works.
+		const String pck_mods_root = String(vortarismodloader::get_ml_setting("paths", "mod_dir", "res://mods"));
 		Ref<DirAccess> dir = DirAccess::open(pck_mods_root);
 		if (dir.is_valid()) {
 			dir->list_dir_begin();
@@ -311,19 +314,19 @@ void VMLModLoader::scan_mods() {
 }
 
 void VMLModLoader::mount_packs() {
-	// In the editor, mounting a pack makes res:// read-only (Godot limitation),
-	// which would break the mod wizard / hot-reload file edits. Packs are the
-	// distribution mechanism for running games; the editor works on folders.
-	if (Engine::get_singleton()->is_editor_hint()) {
-		return;
-	}
-	// The export policy applies here too: "none" loads nothing (skip mounting
+	// 0.4.0 (#9/#11): packs are force-mounted in the editor as well as at
+	// runtime. Dev-stage pcks are prerequisites/dependencies — nobody needs to
+	// unload them mid-session, and Godot cannot unmount a pack anyway. The GUI
+	// explains this; for debugging there is an exclusion list (exclude_pack /
+	// user://vml/excluded_pcks.json) that takes effect on the NEXT editor start.
+	// The export policy still applies: "none" loads nothing (skip mounting
 	// entirely) and "external" only mounts packs under non-embedded (user) roots —
 	// exactly the same gate as the discovery loop in scan_mods.
 	const String export_mode = String(vortarismodloader::get_ml_setting("export", "export_mods", "embedded"));
 	if (export_mode == "none") {
 		return;
 	}
+	const PackedStringArray excluded = get_excluded_packs();
 	const PackedStringArray roots = mod_roots();
 	for (int i = 0; i < roots.size(); i++) {
 		const String root = roots[i];
@@ -337,6 +340,19 @@ void VMLModLoader::mount_packs() {
 			if (std::find(mounted_packs_.begin(), mounted_packs_.end(), pck) != mounted_packs_.end()) {
 				continue; // already mounted this session
 			}
+			bool skip = false;
+			for (int k = 0; k < excluded.size(); ++k) {
+				// Match by stored path or by file name so an exclusion survives
+				// moving the pck between roots.
+				if (String(excluded[k]) == pck || String(excluded[k]) == pck.get_file()) {
+					skip = true;
+					break;
+				}
+			}
+			if (skip) {
+				log_verbose(String("pck excluded (restart to re-enable): ") + pck);
+				continue;
+			}
 			const bool ok = ProjectSettings::get_singleton()->load_resource_pack(pck);
 			if (ok) {
 				mounted_packs_.push_back(pck);
@@ -347,6 +363,59 @@ void VMLModLoader::mount_packs() {
 			}
 		}
 	}
+}
+
+PackedStringArray VMLModLoader::get_excluded_packs() const {
+	PackedStringArray out;
+	Ref<FileAccess> f = FileAccess::open("user://vml/excluded_pcks.json", FileAccess::READ);
+	if (f.is_null()) {
+		return out;
+	}
+	const Variant parsed = JSON::parse_string(f->get_as_text());
+	if (parsed.get_type() == Variant::ARRAY) {
+		const Array arr = parsed;
+		for (int i = 0; i < arr.size(); ++i) {
+			if (arr[i].get_type() == Variant::STRING && !String(arr[i]).is_empty()) {
+				out.push_back(arr[i]);
+			}
+		}
+	}
+	return out;
+}
+
+void VMLModLoader::save_excluded_packs(const PackedStringArray &p_packs) {
+	Array arr;
+	for (int i = 0; i < p_packs.size(); ++i) {
+		arr.push_back(p_packs[i]);
+	}
+	Ref<FileAccess> f = FileAccess::open("user://vml/excluded_pcks.json", FileAccess::WRITE);
+	if (f.is_valid()) {
+		f->store_string(JSON::stringify(arr, "  "));
+		f->close();
+	}
+}
+
+void VMLModLoader::exclude_pack(const String &p_pck) {
+	// #9 escape hatch: mark a pack so it is NOT mounted on the next editor/game
+	// start. Godot cannot unmount packs mid-session, so this is restart-based by
+	// design (the GUI says so).
+	PackedStringArray list = get_excluded_packs();
+	if (!list.has(p_pck)) {
+		list.push_back(p_pck);
+		save_excluded_packs(list);
+		log_verbose(String("pck excluded until re-enabled: ") + p_pck);
+	}
+}
+
+void VMLModLoader::include_pack(const String &p_pck) {
+	PackedStringArray list = get_excluded_packs();
+	PackedStringArray out;
+	for (int i = 0; i < list.size(); ++i) {
+		if (String(list[i]) != p_pck) {
+			out.push_back(list[i]);
+		}
+	}
+	save_excluded_packs(out);
 }
 
 String VMLModLoader::error_summary_text() const {
@@ -2259,21 +2328,29 @@ String VMLModLoader::get_legacy_mod_migration_notice() const {
 }
 
 PackedStringArray VMLModLoader::mod_roots() const {
-	// 0.3.2: the scan roots are composed from the two per-directory settings
-	// (mod_dir = dev mod main dir, unpacked_dir = legacy unpacked dir) plus any
-	// runtime extra roots persisted by add_mod_root/remove_mod_root. The old
-	// PackedStringArray setting (tiered `paths/mod_paths` or flat
-	// `vortarismodloader/mod_paths` from 0.3.0/0.3.1) is still read and merged as a
-	// backward-compatible fallback, so a project that only ever set the array keeps
-	// working and its entries survive the upgrade (Z1).
+	// 0.4.0 (#11): ONE mods directory. `paths/mod_dir` is the single entry point
+	// — folders inside are source mods, *.pck files inside are packed mods. The
+	// old parallel `mods-unpacked` directory is deprecated: it is only merged
+	// while a project still explicitly configures `paths/unpacked_dir` (a
+	// one-time migration notice points at consolidating into mod_dir). New
+	// projects never see the setting and scan mod_dir only.
 	PackedStringArray out;
 	const String mod_dir = String(vortarismodloader::get_ml_setting("paths", "mod_dir", "res://mods"));
-	const String unpacked_dir = String(vortarismodloader::get_ml_setting("paths", "unpacked_dir", "res://mods-unpacked"));
 	if (!mod_dir.is_empty()) {
 		out.push_back(mod_dir);
 	}
-	if (!unpacked_dir.is_empty() && !out.has(unpacked_dir)) {
-		out.push_back(unpacked_dir);
+	// Deprecated compat root: merged only while explicitly configured.
+	ProjectSettings *ps = ProjectSettings::get_singleton();
+	if (ps != nullptr && ps->has_setting("vortarismodloader/paths/unpacked_dir")) {
+		const String unpacked_dir = String(ps->get_setting("vortarismodloader/paths/unpacked_dir"));
+		if (!unpacked_dir.is_empty() && !out.has(unpacked_dir)) {
+			out.push_back(unpacked_dir);
+			if (!unpacked_migration_notified_) {
+				unpacked_migration_notified_ = true;
+				print_line(String("VML: paths/unpacked_dir is deprecated (0.4.0) — move its mods into ") +
+						mod_dir + String(" and remove the setting; using a single mods directory."));
+			}
+		}
 	}
 	// Legacy array roots (0.3.0 flat / 0.3.1 tiered), merged without duplicates.
 	const PackedStringArray legacy = _ml_string_array(vortarismodloader::get_ml_setting("paths", "mod_paths", Variant()));
@@ -2284,10 +2361,29 @@ PackedStringArray VMLModLoader::mod_roots() const {
 	}
 	// Runtime extra roots persisted by add_mod_root/remove_mod_root.
 	const PackedStringArray extra = _ml_string_array(
-			ProjectSettings::get_singleton()->get_setting("vortarismodloader/paths/extra_roots", PackedStringArray()));
+			ps != nullptr ? ps->get_setting("vortarismodloader/paths/extra_roots", PackedStringArray()) : Variant());
 	for (int i = 0; i < extra.size(); i++) {
 		if (!out.has(extra[i])) {
 			out.push_back(extra[i]);
+		}
+	}
+	// 0.4.0 (#8): in an EXPORTED runtime, res:// points inside the embedded main
+	// pck, so a disk `mods/` folder next to the executable is invisible to the
+	// res:// scan. Map `<exe dir>/<mod_dir basename>` in automatically (BepInEx /
+	// RimWorld convention): drop player *.pck mods there and they load with no
+	// game code. Embedded res:// roots stay first (curated content wins); the
+	// adjacent dir supplements them. Editor + non-template runs are unaffected.
+	if (!Engine::get_singleton()->is_editor_hint() &&
+			bool(vortarismodloader::get_ml_setting("paths", "scan_adjacent_mods", true)) &&
+			OS::get_singleton()->has_feature("template")) {
+		const String exe_dir = OS::get_singleton()->get_executable_path().get_base_dir();
+		const String base = mod_dir.get_file();
+		if (!exe_dir.is_empty() && !base.is_empty()) {
+			const String adj = exe_dir.path_join(base);
+			if (DirAccess::dir_exists_absolute(adj) && !out.has(adj)) {
+				out.push_back(adj);
+				log_debug(String("scan: adjacent exe mods dir ") + adj);
+			}
 		}
 	}
 	return out;
@@ -3015,6 +3111,9 @@ void VMLModLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_mod_package_plan"), &VMLModLoader::get_mod_package_plan);
 	ClassDB::bind_method(D_METHOD("set_export_policy", "mode", "scan_user"), &VMLModLoader::set_export_policy);
 	ClassDB::bind_method(D_METHOD("get_mod_roots"), &VMLModLoader::get_mod_roots);
+	ClassDB::bind_method(D_METHOD("get_excluded_packs"), &VMLModLoader::get_excluded_packs);
+	ClassDB::bind_method(D_METHOD("exclude_pack", "pck"), &VMLModLoader::exclude_pack);
+	ClassDB::bind_method(D_METHOD("include_pack", "pck"), &VMLModLoader::include_pack);
 	ClassDB::bind_method(D_METHOD("install_root"), &VMLModLoader::install_root);
 	ClassDB::bind_method(D_METHOD("add_mod_root", "path"), &VMLModLoader::add_mod_root);
 	ClassDB::bind_method(D_METHOD("remove_mod_root", "path"), &VMLModLoader::remove_mod_root);

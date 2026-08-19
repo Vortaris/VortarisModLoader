@@ -74,7 +74,11 @@ static void register_vml_project_settings() {
 		{ "general", "validate_on_startup", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "", true },
 		{ "general", "database_mode", Variant::STRING, PropertyHint::PROPERTY_HINT_ENUM, "data,all,off", "data" },
 		{ "paths", "mod_dir", Variant::STRING, PropertyHint::PROPERTY_HINT_DIR, "", "res://mods" },
-		{ "paths", "unpacked_dir", Variant::STRING, PropertyHint::PROPERTY_HINT_DIR, "", "res://mods-unpacked" },
+		// Deprecated since 0.4.0 (#11): the single mod_dir replaces the dual
+		// mods/mods-unpacked layout. Default EMPTY so new projects never scan a
+		// second directory; projects that still set it explicitly keep working
+		// (mod_roots merges it with a one-time migration notice).
+		{ "paths", "unpacked_dir", Variant::STRING, PropertyHint::PROPERTY_HINT_DIR, "", "" },
 		{ "paths", "registry_path", Variant::STRING, PropertyHint::PROPERTY_HINT_FILE_PATH, "*.json", "res://vml/registry.json" },
 		{ "paths", "scan_user_mods", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "", true },
 		{ "paths", "scan_adjacent_mods", Variant::BOOL, PropertyHint::PROPERTY_HINT_NONE, "", true },
@@ -144,11 +148,12 @@ static void register_vml_project_settings() {
 
 	// 0.3.2 cleanup: the legacy PackedStringArray mod-path settings (tiered
 	// `paths/mod_paths` and flat `vortarismodloader/mod_paths`) are gone from the
-	// editor — the UI now uses the two dir settings. Migrate their values into
-	// mod_dir/unpacked_dir when those are still at their defaults, then clear the
-	// arrays so they stop showing in Project Settings / lingering in project.godot.
+	// editor — the UI now uses the dir settings. Migrate mod_paths[0] into
+	// mod_dir when it is still at its default, then clear the arrays so they stop
+	// showing in Project Settings / lingering in project.godot. 0.4.0 (#11):
+	// mod_paths[1..] all become extra_roots — the old second slot fed the
+	// deprecated unpacked_dir, which is no longer part of the default layout.
 	const String default_mod_dir = "res://mods";
-	const String default_unpacked = "res://mods-unpacked";
 	const char *legacy_arrays[] = {
 		"vortarismodloader/paths/mod_paths",
 		"vortarismodloader/mod_paths",
@@ -162,13 +167,11 @@ static void register_vml_project_settings() {
 			if (ps->get_setting("vortarismodloader/paths/mod_dir") == Variant(default_mod_dir)) {
 				ps->set_setting("vortarismodloader/paths/mod_dir", arr[0]);
 			}
-			if (arr.size() > 1 && ps->get_setting("vortarismodloader/paths/unpacked_dir") == Variant(default_unpacked)) {
-				ps->set_setting("vortarismodloader/paths/unpacked_dir", arr[1]);
-			}
-			// Preserve any extra roots (index >= 2) — e.g. custom roots added via
-			// add_mod_root — by appending them to the runtime extra_roots list,
-			// otherwise they'd be silently lost when the array is cleared below.
-			for (int i = 2; i < arr.size(); i++) {
+			// Preserve any extra roots (index >= 1) — e.g. custom roots added via
+			// add_mod_root or the deprecated unpacked slot — by appending them to
+			// the runtime extra_roots list, otherwise they'd be silently lost when
+			// the array is cleared below.
+			for (int i = 1; i < arr.size(); i++) {
 				// extra_roots is runtime-only (not registered); collect existing
 				// entries if any, then append the legacy array's extra roots.
 				const godot::Variant ev = ps->get_setting("vortarismodloader/paths/extra_roots");

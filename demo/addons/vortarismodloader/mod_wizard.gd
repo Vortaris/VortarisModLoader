@@ -1,7 +1,9 @@
 @tool
 extends ConfirmationDialog
 ## One-click mod skeleton generator. Writes a loadable mod into
-## res://mods-unpacked/<id>/ with manifest.json + mod_main.gd + assets/data dirs.
+## Creates a new source-mod skeleton under the configured mod_dir (0.4.0:
+## single mods directory) — <mod_dir>/<id>/ with manifest.json + mod_main.gd
+## + assets/data dirs.
 
 signal mod_created(mod_id: String)
 
@@ -74,7 +76,12 @@ func _on_confirmed() -> void:
 		popup_centered(Vector2(400, 200))
 		return
 
-	var base := "res://mods-unpacked/" + id
+	# 0.4.0 (#11): new mods are created in the single configured mod_dir
+	# (folders = source mods, *.pck = packed mods live side by side).
+	var mod_dir: String = ProjectSettings.get_setting("vortarismodloader/paths/mod_dir", "res://mods")
+	if mod_dir.is_empty():
+		mod_dir = "res://mods"
+	var base := mod_dir.path_join(id)
 	if DirAccess.dir_exists_absolute(base):
 		_error.text = "mod already exists: " + base
 		popup_centered(Vector2(400, 200))

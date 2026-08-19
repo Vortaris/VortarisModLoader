@@ -114,6 +114,7 @@ func _ready() -> void:
 	_add_btn(toolbar, "Install Zip", _on_install_zip) # legacy, optional dev flow
 	_add_btn(toolbar, "Create Mod", _on_create_mod)
 	_add_btn(toolbar, "Reload DB", _on_reload)
+	_add_btn(toolbar, "Excluded PCKs", _on_excluded_pcks)
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	toolbar.add_child(spacer)
@@ -122,6 +123,15 @@ func _ready() -> void:
 	title.add_theme_color_override("font_color", Color(0.55, 0.55, 0.6))
 	toolbar.add_child(title)
 
+	vbox.add_child(_make_sep())
+
+	# 0.4.0 (#9): editor packs are force-mounted; explain it where users look.
+	var pck_note := Label.new()
+	pck_note.text = "Note: .pck mods in the mods directory are force-mounted at startup and cannot be unloaded in this session. To skip one (e.g. while debugging), use \"Excluded PCKs\" and restart."
+	pck_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	pck_note.add_theme_color_override("font_color", Color(0.6, 0.6, 0.65))
+	pck_note.add_theme_font_size_override("font_size", 12)
+	vbox.add_child(pck_note)
 	vbox.add_child(_make_sep())
 
 	# Split: mod list | details.
@@ -654,11 +664,75 @@ func _on_pck_selected(path: String) -> void:
 		_set_status("install: %s" % error_string(err))
 		return
 	VML.rescan()
-	# Packs mount via load_resource_pack at runtime; in the editor they are staged
-	# into the writable root and picked up on the next game run.
-	_set_status("installed %s -> %s (mounted on next run)" % [path.get_file(), root])
+	# 0.4.0: packs are force-mounted at startup (editor and runtime alike); a
+	# freshly installed pack mounts on the next editor/game start.
+	_set_status("installed %s -> %s (mounted on next start)" % [path.get_file(), root])
 	print("VML: installed pack %s -> %s" % [path, root])
 	refresh()
+
+
+## 0.4.0 (#9): manage the restart-based pack exclusion list. Godot cannot
+## unmount a pack mid-session, so excluding takes effect on the next start.
+func _on_excluded_pcks() -> void:
+	if not Engine.has_singleton("VML"):
+		return
+	var dlg := AcceptDialog.new()
+	dlg.title = "Excluded PCKs"
+	dlg.exclusive = false
+	var box := VBoxContainer.new()
+	box.custom_minimum_size = Vector2(460, 0)
+	dlg.add_child(box)
+	var info := Label.new()
+	info.text = "Excluded packs are NOT mounted when the editor/game starts.\nMounting resumes after removing them here and restarting."
+	info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(info)
+	box.add_child(HSeparator.new())
+	var excluded: PackedStringArray = VML.get_excluded_packs()
+	if excluded.is_empty():
+		var none := Label.new()
+		none.text = "(no excluded packs)"
+		box.add_child(none)
+	else:
+		for p in excluded:
+			var row := HBoxContainer.new()
+			var lbl := Label.new()
+			lbl.text = String(p)
+			lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.add_child(lbl)
+			var btn := Button.new()
+			btn.text = "Re-include"
+			btn.pressed.connect(func():
+				VML.include_pack(String(p))
+				dlg.queue_free()
+				_on_excluded_pcks() # reopen with the refreshed list
+				_set_status("re-included %s (mounts again after restart)" % String(p)))
+			row.add_child(btn)
+			box.add_child(row)
+	box.add_child(HSeparator.new())
+	var add_btn := Button.new()
+	add_btn.text = "Exclude a PCK..."
+	add_btn.pressed.connect(func():
+		dlg.queue_free()
+		_pick_pack_to_exclude())
+	box.add_child(add_btn)
+	add_child(dlg)
+	dlg.popup_centered()
+
+
+func _pick_pack_to_exclude() -> void:
+	var fd := FileDialog.new()
+	fd.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	fd.access = FileDialog.ACCESS_FILESYSTEM
+	fd.exclusive = false
+	fd.add_filter("*.pck", "Vortaris Mod Pack (pck)")
+	add_child(fd)
+	fd.file_selected.connect(func(p: String):
+		if Engine.has_singleton("VML"):
+			VML.exclude_pack(p)
+			_set_status("excluded %s — takes effect after restart" % p.get_file())
+		fd.queue_free())
+	fd.canceled.connect(func(): fd.queue_free())
+	fd.popup_centered_ratio(0.5)
 
 
 func _copy_file_into(src: String, root: String) -> Error:

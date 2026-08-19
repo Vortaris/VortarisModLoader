@@ -340,7 +340,16 @@ private:
 	void scan_mods();
 	/// Mount every *.pck found under the configured mod roots (read-only packs,
 	/// content must live under mods/<mod_id>/). Called at the top of scan_mods.
+	/// Force-mounted in the editor too (0.4.0 #9); packs in the exclusion list
+	/// are skipped (restart-based unload for debugging).
 	void mount_packs();
+	/// #9 exclusion list (user://vml/excluded_pcks.json): packs listed here are
+	/// NOT mounted on the next editor/game start. Godot cannot unmount a pack
+	/// mid-session, so exclusion takes effect on restart by design.
+	PackedStringArray get_excluded_packs() const;
+	void exclude_pack(const String &p_pck);
+	void include_pack(const String &p_pck);
+	void save_excluded_packs(const PackedStringArray &p_packs);
 	/// After a scan/finish_startup: always print the error summary to the console;
 	/// when vortarismodloader/general/show_error_dialogs is on and the display is
 	/// not headless, pop an AcceptDialog with the same summary.
@@ -451,6 +460,7 @@ private:
 	String last_error_dialog_summary_; // last error summary that popped a dialog (F8 debounce)
 	String legacy_migration_notice_; // one-time user://vml/mods migration hint (F5)
 	bool legacy_migration_notified_ = false; // shown this session (or root re-added)
+	mutable bool unpacked_migration_notified_ = false; // one-time unpacked_dir deprecation notice (#11)
 
 	static VMLModLoader *singleton;
 };
