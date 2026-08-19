@@ -12,6 +12,7 @@ extends Control
 const TYPES := ["data", "scene", "script", "image", "audio", "font", "resource"]
 
 const ResizableTree = preload("resizable_tree.gd")
+const TreeCopy = preload("tree_copy.gd")
 
 var _tree: Tree
 var _tabs: TabContainer
@@ -28,6 +29,7 @@ var _dlg_value_row: HBoxContainer
 var _dlg_value_text: TextEdit # data-constant default
 var _dlg_desc: LineEdit
 var _selected_id := ""
+var _edit_original_id := "" # set while the Edit/Remap dialog is open ("" = New)
 
 
 func _ready() -> void:
@@ -53,11 +55,13 @@ func _ready() -> void:
 	_setup_columns(_tree, ["ID", "Path / Default", "Type", "Desc"], [130, 180, 60, 80])
 	_tree.name = "Registry"
 	_tree.item_selected.connect(_on_selected)
+	_tree.set_meta("vml_copy_helper", TreeCopy.new(_tree)) # issue #3
 	_tabs.add_child(_tree)
 
 	var loaded := ResizableTree.new()
 	_setup_columns(loaded, ["ID", "Path", "Provider", "Type"], [130, 180, 70, 60])
 	loaded.name = "Loaded"
+	loaded.set_meta("vml_copy_helper", TreeCopy.new(loaded)) # issue #3
 	_tabs.add_child(loaded)
 	loaded.item_selected.connect(_on_loaded_selected)
 	loaded.set_meta("loaded_tree", true)
@@ -84,6 +88,7 @@ func _ready() -> void:
 	_browse_tree = ResizableTree.new()
 	_setup_columns(_browse_tree, ["ID / Provider", "Path", "Priority", "Explicit"], [150, 220, 60, 60])
 	_browse_tree.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_browse_tree.set_meta("vml_copy_helper", TreeCopy.new(_browse_tree)) # issue #3
 	browse_vbox.add_child(_browse_tree)
 
 	_status = Label.new()
@@ -331,6 +336,7 @@ func _on_type_changed() -> void:
 
 func _on_new() -> void:
 	_selected_id = ""
+	_edit_original_id = ""
 	_dlg.title = "New ID"
 	_dlg_id.text = ""
 	_dlg_id.editable = true
@@ -349,8 +355,32 @@ func _on_edit() -> void:
 		return
 	var entry: Dictionary = VML.get_registry_entry(_selected_id)
 	if entry.is_empty():
-		_status.text = "not a registry entry: " + _selected_id
+		# Issue #7: auto-registered ids (base/mod scans) are NOT registry
+		# entries, so the old code refused them ("not a registry entry"). Open
+		# the dialog in create/remap mode instead, prefilled from get_id_info:
+		#  - keep the id  -> persist a registry route override for the auto id
+		#  - change the id -> register the new id pointing at the same path
+		#    (a persistent remap; the auto id itself stays scannable)
+		var info: Dictionary = VML.get_id_info(_selected_id)
+		_edit_original_id = _selected_id
+		_dlg.title = "Remap Auto-Registered ID"
+		_dlg_id.text = _selected_id
+		_dlg_id.editable = true
+		_dlg_value.text = str(info.get("path", ""))
+		_dlg_value_text.text = ""
+		_dlg_desc.text = ""
+		_dlg_error.text = ""
+		_reset_type_options()
+		var t: String = str(info.get("type", ""))
+		var idx := TYPES.find(t)
+		if idx >= 0:
+			_dlg_type.select(idx)
+		else:
+			_dlg_type.select(0)
+		_on_type_changed()
+		_dlg.popup_centered(Vector2(460, 420))
 		return
+	_edit_original_id = _selected_id
 	_dlg.title = "Edit ID"
 	_dlg_id.text = _selected_id
 	_dlg_id.editable = false # renaming would duplicate entries
@@ -471,8 +501,15 @@ func _on_dialog_ok() -> void:
 			_dlg.popup_centered(Vector2(460, 420))
 			return
 		print("VML: placeholder set: ", id, " -> ", path)
+	var remapped := not _edit_original_id.is_empty() and id != _edit_original_id
+	var remap_from := _edit_original_id
 	_selected_id = id
+	_edit_original_id = ""
 	refresh()
+	if remapped:
+		# The auto-registered original stays scannable; the NEW id is the
+		# persisted registry route users should reference from now on.
+		_status.text = "remapped %s -> new registry id %s (auto id stays scannable)" % [remap_from, id]
 
 
 func _id_is_valid(id: String) -> bool:

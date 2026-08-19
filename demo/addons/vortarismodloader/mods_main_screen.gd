@@ -9,6 +9,7 @@ extends Control
 ## Toolbar: Rescan / Install PCK / Install Zip (legacy) / Create Mod / Reload DB.
 
 const ModWizard = preload("mod_wizard.gd")
+const TreeCopy = preload("tree_copy.gd")
 
 ## Tree subclass that lets the user drag a mod to reorder its priority. Extends
 ## VMLResizableTree so column headers are also drag-resizable (G4).
@@ -71,9 +72,9 @@ var _selected_mod := ""
 
 # Detail panel widgets.
 var _detail_name: Label
-var _detail_meta: Label
+var _detail_meta: LineEdit
 var _detail_desc: Label
-var _detail_root: Label
+var _detail_root: LineEdit
 var _detail_deps: Label
 var _detail_errors: Label
 var _enable_btn: Button
@@ -152,6 +153,7 @@ func _ready() -> void:
 			[140, 110, 60, 60, 50, 120])
 	_mod_tree.item_selected.connect(_on_mod_selected)
 	_mod_tree.mods_reordered.connect(_on_mods_reordered)
+	_mod_tree.set_meta("vml_copy_helper", TreeCopy.new(_mod_tree)) # issue #3
 	_mod_tree.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_mod_tree.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_mod_tree.custom_minimum_size.y = 150
@@ -202,16 +204,20 @@ func _ready() -> void:
 	_detail_name.add_theme_font_size_override("font_size", 18)
 	_detail_name.text = "(no mod selected)"
 	detail_vbox.add_child(_detail_name)
-	_detail_meta = Label.new()
+	_detail_meta = LineEdit.new()
+	_detail_meta.editable = false
+	_detail_meta.flat = true
 	_detail_meta.add_theme_color_override("font_color", Color(0.6, 0.6, 0.65))
+	# issue #3: read-only LineEdit = selectable + copyable (Label cannot select).
 	detail_vbox.add_child(_detail_meta)
 	_detail_desc = Label.new()
 	_detail_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	detail_vbox.add_child(_detail_desc)
-	_detail_root = Label.new()
-	_detail_root.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_detail_root = LineEdit.new()
+	_detail_root.editable = false
+	_detail_root.flat = true
 	_detail_root.add_theme_color_override("font_color", Color(0.55, 0.55, 0.6))
-	detail_vbox.add_child(_detail_root)
+	detail_vbox.add_child(_detail_root) # issue #3: copyable path
 	_detail_deps = Label.new()
 	_detail_deps.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	detail_vbox.add_child(_detail_deps)
@@ -247,6 +253,7 @@ func _ready() -> void:
 	_setup_columns(_hook_tree, ["Hook", "Mod", "Priority", "Description"],
 			[150, 90, 60, 220])
 	_hook_tree.name = "Hooks"
+	_hook_tree.set_meta("vml_copy_helper", TreeCopy.new(_hook_tree)) # issue #3
 	tabs.add_child(_hook_tree)
 
 	# Content tab.
@@ -263,6 +270,7 @@ func _ready() -> void:
 	_content_tree = VMLResizableTree.new()
 	_setup_columns(_content_tree, ["ID", "Path", "Provider", "Type"], [140, 220, 90, 60])
 	_content_tree.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_content_tree.set_meta("vml_copy_helper", TreeCopy.new(_content_tree)) # issue #3
 	content_vbox.add_child(_content_tree)
 
 	# Refresh hooks/content when switching tabs (the selected mod's data may have
