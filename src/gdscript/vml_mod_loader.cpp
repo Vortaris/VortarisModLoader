@@ -95,6 +95,14 @@ VMLModLoader::VMLModLoader() {
 	load_registry(registry_path());
 	load_registry("user://vml/registry.json");
 
+	// 0.4.0: wire the @condition directive evaluator and bake tags BEFORE the
+	// database preload so conditional data files and tags_populated predicates
+	// see a complete picture on the very first load.
+	vortarismodloader::LoaderBackend::set_condition_evaluator([this](const String &p_term) {
+		return evaluate_condition_term(p_term);
+	});
+	rebuild_tags();
+
 	// Unified load: honor vortarismodloader/general/database_mode ("data"/"all"/"off").
 	database_mode_ = mode_from_string(godot::Variant(
 			vortarismodloader::get_ml_setting("general", "database_mode", "data")));
@@ -114,6 +122,32 @@ VMLModLoader::VMLModLoader() {
 }
 
 VMLModLoader::~VMLModLoader() {
+	// 0.4.0 audit: drop the LoaderBackend statics that reference this instance /
+	// hold godot::String keys. They are CRT static members, so if they still hold
+	// data when the library unloads their destructors run AFTER the engine is
+	// torn down (destroying godot::String against freed engine internals) and the
+	// process exits with a junk code. Clearing them here (module-uninit time,
+	// before static destruction) keeps shutdown clean.
+	vortarismodloader::LoaderBackend::set_condition_evaluator(nullptr);
+	vortarismodloader::LoaderBackend::clear_failed_paths();
+	// Audit fix: VML is a bare memnew'd Node OUTSIDE the scene tree, so any child
+	// parented directly to it is never freed automatically when the singleton is
+	// memdeleted at extension unload — those leaked as ObjectDB instances on every
+	// exit (CHANT PLUGIN_WARNINGS). Free them here.
+	//
+	// NOTE on hot_reloader_: start_hot_reload() parents it to the SceneTree root
+	// (so _process runs), and the tree frees it during its own teardown — which
+	// happens BEFORE this destructor. We must NOT touch that pointer here (it is
+	// already dangling). The only case where it is still ours is the fallback
+	// branch (tree missing at start time) where it was parented to `this` — and
+	// then it is simply one of the children freed by the loop below. So no
+	// special-casing; just don't dereference the member.
+	hot_reloader_ = nullptr;
+	while (get_child_count() > 0) {
+		Node *c = get_child(0);
+		remove_child(c);
+		memdelete(c);
+	}
 }
 
 void VMLModLoader::create_singleton() {
@@ -603,7 +637,7 @@ bool VMLModLoader::unregister_id(const String &p_id) {
 	return ok;
 }
 
-Dictionary VMLModLoader::list_ids(const String &p_prefix) const {
+Dictionary VMLModLoader::list_ids(const String &p_prefix, bool p_include_database) const {
 	Dictionary out;
 	for (const vortarismodloader::ResourceId &id : registry_.all_ids()) {
 		const String canonical = id.canonical();
@@ -616,6 +650,25 @@ Dictionary VMLModLoader::list_ids(const String &p_prefix) const {
 		PackedStringArray arr = out[id.ns];
 		arr.push_back(id.path);
 		out[id.ns] = arr;
+	}
+	if (p_include_database) {
+		// CHANT pain point: ids pushed via set_data live only in the database,
+		// so enumerating "every id the loader knows" required manual merging.
+		// Opt-in here (default stays registry-only for backward compatibility).
+		for (const vortarismodloader::ResourceId &id : database_.loaded_ids()) {
+			const String canonical = id.canonical();
+			if (!p_prefix.is_empty() && !canonical.begins_with(p_prefix)) {
+				continue;
+			}
+			if (!out.has(id.ns)) {
+				out[id.ns] = PackedStringArray();
+			}
+			PackedStringArray arr = out[id.ns];
+			if (!arr.has(id.path)) {
+				arr.push_back(id.path);
+				out[id.ns] = arr;
+			}
+		}
 	}
 	return out;
 }
@@ -2067,6 +2120,7 @@ bool VMLModLoader::activate_mod(const String &p_mod_id) {
 	rec->enabled = true;
 	rec->activating = false;
 	save_profile();
+	rebuild_tags(); // 0.4.0: the newly enabled mod's tags join the bake
 	print_line(String("VML: mod '") + p_mod_id + String("' enabled"));
 	log_verbose(String("stacked content, mod_main instantiated"));
 	emit_signal("mod_enabled", p_mod_id);
@@ -2122,6 +2176,7 @@ bool VMLModLoader::deactivate_mod(const String &p_mod_id) {
 	rec->enabled = false;
 	rec->content_scanned = false; // re-scan on the next activate
 	save_profile();
+	rebuild_tags(); // 0.4.0: drop the disabled mod's tags from the bake
 	print_line(String("VML: mod '") + p_mod_id + String("' disabled"));
 	log_verbose("hooks removed, content dropped");
 	emit_signal("mod_unloaded", p_mod_id);
@@ -2495,6 +2550,317 @@ String VMLModLoader::owning_mod(const String &p_path) const {
 	return String();
 }
 
+// ------------------------------------------------------------------ tags ----
+// 0.4.0: Minecraft-style tags for composition-friendly content sets. Tag files
+// live at `<content root>/<ns>/tags/**.json`; the scanner never registers the
+// `tags/` subtree as content ids (see scanner.cpp), and rebuild_tags() parses
+// and merges them here after every scan.
+
+void VMLModLoader::rebuild_tags() {
+	std::vector<RawTagFile> files;
+	int seq = 0;
+	for (const String &d : _ml_base_dirs()) {
+		collect_tags_from_root(d, 0, seq, files);
+	}
+	for (const String &mid : load_order_) {
+		ModRecord *rec = find_mod(mid);
+		if (rec == nullptr || !rec->enabled || !rec->content_scanned) {
+			continue;
+		}
+		const int pri = mod_priority(mid);
+		for (const String &dir : rec->manifest.asset_dirs) {
+			collect_tags_from_root(rec->root + String("/") + dir, pri, seq, files);
+		}
+		for (const String &dir : rec->manifest.data_dirs) {
+			collect_tags_from_root(rec->root + String("/") + dir, pri, seq, files);
+		}
+	}
+	// Merge in ascending priority (base first, then mods in load order); the
+	// stable sort preserves discovery order inside one priority level.
+	std::stable_sort(files.begin(), files.end(),
+			[](const RawTagFile &a, const RawTagFile &b) { return a.priority < b.priority; });
+	std::map<String, std::vector<TagValueEntry>> merged;
+	for (const RawTagFile &f : files) {
+		if (f.def.replace) {
+			merged[f.tag_id].clear();
+		}
+		std::vector<TagValueEntry> &dst = merged[f.tag_id];
+		for (const TagValueEntry &v : f.def.values) {
+			dst.push_back(v);
+		}
+	}
+	// Bake: resolve nested references (cycle-safe) and build the reverse index.
+	tag_members_.clear();
+	tag_reverse_.clear();
+	for (const auto &kv : merged) {
+		std::set<String> visited;
+		std::vector<String> members;
+		resolve_tag_values(kv.first, kv.second, merged, visited, members);
+		tag_members_[kv.first] = members;
+		for (const String &m : members) {
+			tag_reverse_[m].push_back(kv.first);
+		}
+	}
+	log_debug(String("tags: rebuilt (") + String::num_int64((int64_t)tag_members_.size()) +
+			String(" tags from ") + String::num_int64((int64_t)files.size()) + String(" file(s))"));
+}
+
+void VMLModLoader::collect_tags_from_root(const String &p_root, int p_pri, int &r_seq,
+		std::vector<RawTagFile> &r_out) {
+	Ref<DirAccess> d = DirAccess::open(p_root);
+	if (d.is_null()) {
+		return;
+	}
+	d->list_dir_begin();
+	String e;
+	while ((e = d->get_next()) != String()) {
+		if (e == "." || e == ".." || !d->current_is_dir()) {
+			continue;
+		}
+		if (!vortarismodloader::ResourceId::is_valid_namespace(e)) {
+			continue;
+		}
+		const String tags_dir = p_root + String("/") + e + String("/tags");
+		if (DirAccess::dir_exists_absolute(tags_dir)) {
+			walk_tag_dir(tags_dir, String(), e, p_pri, r_seq, r_out);
+		}
+	}
+	d->list_dir_end();
+}
+
+void VMLModLoader::walk_tag_dir(const String &p_abs, const String &p_rel, const String &p_ns,
+		int p_pri, int &r_seq, std::vector<RawTagFile> &r_out) {
+	Ref<DirAccess> d = DirAccess::open(p_abs);
+	if (d.is_null()) {
+		return;
+	}
+	d->list_dir_begin();
+	String e;
+	while ((e = d->get_next()) != String()) {
+		if (e == "." || e == "..") {
+			continue;
+		}
+		const String abs = p_abs + String("/") + e;
+		if (d->current_is_dir()) {
+			const String child_rel = p_rel.is_empty() ? e : p_rel + String(".") + e;
+			walk_tag_dir(abs, child_rel, p_ns, p_pri, r_seq, r_out);
+			continue;
+		}
+		if (e.get_extension().to_lower() != "json") {
+			continue;
+		}
+		const String tag_path = p_rel.is_empty() ? e.get_basename() : p_rel + String(".") + e.get_basename();
+		if (!vortarismodloader::ResourceId::is_valid_path(tag_path)) {
+			continue;
+		}
+		Ref<FileAccess> f = FileAccess::open(abs, FileAccess::READ);
+		if (f.is_null()) {
+			continue;
+		}
+		Ref<JSON> j;
+		j.instantiate();
+		if (j->parse(f->get_as_text()) != OK) {
+			log_debug(String("tags: invalid JSON in ") + abs);
+			continue;
+		}
+		if (j->get_data().get_type() != Variant::DICTIONARY) {
+			log_debug(String("tags: root must be an object in ") + abs);
+			continue;
+		}
+		const Dictionary obj = j->get_data();
+		RawTagFile raw;
+		raw.priority = p_pri;
+		raw.seq = r_seq++;
+		raw.tag_id = p_ns + String(":") + tag_path;
+		raw.def.replace = bool(obj.get("replace", false));
+		const Array values = obj.get("values", Array());
+		for (int i = 0; i < values.size(); ++i) {
+			TagValueEntry ent;
+			if (values[i].get_type() == Variant::STRING) {
+				ent.ref = String(values[i]).strip_edges();
+			} else if (values[i].get_type() == Variant::DICTIONARY) {
+				const Dictionary dv = values[i];
+				ent.ref = String(dv.get("id", "")).strip_edges();
+				ent.required = bool(dv.get("required", true));
+			} else {
+				continue;
+			}
+			if (ent.ref.begins_with("vml://")) {
+				ent.ref = ent.ref.substr(6);
+			}
+			if (ent.ref.begins_with("#")) {
+				ent.is_tag = true;
+				ent.ref = ent.ref.substr(1);
+			}
+			if (!ent.ref.is_empty()) {
+				raw.def.values.push_back(ent);
+			}
+		}
+		r_out.push_back(std::move(raw));
+	}
+	d->list_dir_end();
+}
+
+void VMLModLoader::resolve_tag_values(const String &p_tag, const std::vector<TagValueEntry> &p_values,
+		const std::map<String, std::vector<TagValueEntry>> &p_merged,
+		std::set<String> &r_visited, std::vector<String> &r_out) const {
+	if (!r_visited.insert(p_tag).second) {
+		return; // cycle guard: a tag already expanded on this path
+	}
+	for (const TagValueEntry &v : p_values) {
+		if (v.is_tag) {
+			const auto it = p_merged.find(v.ref);
+			if (it == p_merged.end()) {
+				if (v.required) {
+					log_debug(String("tags: '") + p_tag + String("' references missing tag '") + v.ref + String("'"));
+				}
+				continue;
+			}
+			resolve_tag_values(v.ref, it->second, p_merged, r_visited, r_out);
+		} else {
+			// Plain member id. required=false: only keep it when the id actually
+			// exists, so a mod can optionally reference another mod's content
+			// without breaking when that mod (or the id) is absent.
+			if (!v.required && !has(v.ref)) {
+				continue;
+			}
+			if (std::find(r_out.begin(), r_out.end(), v.ref) == r_out.end()) {
+				r_out.push_back(v.ref);
+			}
+		}
+	}
+}
+
+bool VMLModLoader::tag_has(const String &p_tag, const String &p_id) const {
+	const auto it = tag_members_.find(p_tag);
+	if (it == tag_members_.end()) {
+		return false;
+	}
+	return std::find(it->second.begin(), it->second.end(), p_id) != it->second.end();
+}
+
+PackedStringArray VMLModLoader::tag_resolve(const String &p_tag) const {
+	PackedStringArray out;
+	const auto it = tag_members_.find(p_tag);
+	if (it == tag_members_.end()) {
+		return out;
+	}
+	for (const String &m : it->second) {
+		out.push_back(m);
+	}
+	return out;
+}
+
+PackedStringArray VMLModLoader::tags_of(const String &p_id) const {
+	PackedStringArray out;
+	const auto it = tag_reverse_.find(p_id);
+	if (it == tag_reverse_.end()) {
+		return out;
+	}
+	for (const String &t : it->second) {
+		if (!out.has(t)) {
+			out.push_back(t);
+		}
+	}
+	return out;
+}
+
+PackedStringArray VMLModLoader::list_tags() const {
+	PackedStringArray out;
+	for (const auto &kv : tag_members_) {
+		out.push_back(kv.first);
+	}
+	return out;
+}
+
+// -------------------------------------------- conditional data loading ------
+
+bool VMLModLoader::evaluate_condition_term(const String &p_term) {
+	String term = p_term.strip_edges();
+	if (term.is_empty()) {
+		return true;
+	}
+	bool negate = false;
+	if (term.begins_with("not:")) {
+		negate = true;
+		term = term.substr(4).strip_edges();
+	}
+	bool result = false;
+	if (term.begins_with("mod_loaded:")) {
+		const String mid = term.substr(11).strip_edges();
+		const ModRecord *rec = find_mod(mid);
+		result = rec != nullptr && rec->enabled;
+	} else if (term.begins_with("any_mods_loaded:") || term.begins_with("all_mods_loaded:")) {
+		const bool all = term.begins_with("all_mods_loaded:");
+		const String list = term.substr(16).strip_edges(); // both prefixes are 16 chars
+		const PackedStringArray parts = list.split("|", false);
+		int loaded = 0, total = 0;
+		for (int i = 0; i < parts.size(); ++i) {
+			const String mid = String(parts[i]).strip_edges();
+			if (mid.is_empty()) {
+				continue;
+			}
+			++total;
+			const ModRecord *rec = find_mod(mid);
+			if (rec != nullptr && rec->enabled) {
+				++loaded;
+			}
+		}
+		result = total > 0 && (all ? loaded == total : loaded > 0);
+	} else if (term.begins_with("tags_populated:")) {
+		const String tag = term.substr(15).strip_edges();
+		const auto it = tag_members_.find(tag);
+		result = it != tag_members_.end() && !it->second.empty();
+	} else if (term.begins_with("registry_contains:")) {
+		result = has(term.substr(18).strip_edges());
+	} else {
+		log_debug(String("condition: unknown predicate '") + term + String("' (treated as false)"));
+		result = false;
+	}
+	return negate ? !result : result;
+}
+
+// --------------------------------------------------- lifecycle phases -------
+// 0.4.0: optional mod_main entry points called in load order AFTER every
+// mod_main has been instantiated (hooks from _init are already registered):
+//   vml_preload -> vml_register -> (deferred registrations) -> vml_setup
+// and, at the very end of startup, vml_ready (safe cross-mod queries).
+// Mods without a method are skipped silently; old mods are unaffected.
+
+void VMLModLoader::run_mod_phase(const String &p_method) {
+	for (const String &id : load_order_) {
+		ModRecord *rec = find_mod(id);
+		if (rec == nullptr || !rec->enabled || rec->mod_main_node == nullptr) {
+			continue;
+		}
+		if (rec->mod_main_node->has_method(p_method)) {
+			rec->mod_main_node->call(p_method);
+		}
+	}
+}
+
+void VMLModLoader::defer_register(const String &p_ns, const Callable &p_callable) {
+	if (!p_callable.is_valid()) {
+		return;
+	}
+	deferred_regs_.push_back({ p_ns, p_callable });
+}
+
+void VMLModLoader::run_deferred_registrations() {
+	if (deferred_regs_.empty()) {
+		return;
+	}
+	std::vector<std::pair<String, Callable>> regs;
+	regs.swap(deferred_regs_);
+	for (const auto &dr : regs) {
+		if (dr.second.is_valid()) {
+			dr.second.call();
+		}
+	}
+	log_debug(String("lifecycle: ran ") + String::num_int64((int64_t)regs.size()) +
+			String(" deferred registration(s)"));
+}
+
 Variant VMLModLoader::instantiate(const String &p_id) {
 	vortarismodloader::ResourceId rid;
 	if (!vortarismodloader::ResourceId::parse(p_id, rid)) {
@@ -2519,6 +2885,8 @@ Variant VMLModLoader::instantiate(const String &p_id) {
 }
 
 void VMLModLoader::reload_resources(const PackedStringArray &p_paths) {
+	// 0.4.0 audit: a changed file may have been the broken one — retry it.
+	vortarismodloader::LoaderBackend::clear_failed_paths();
 	std::vector<String> affected;
 	for (int i = 0; i < p_paths.size(); i++) {
 		const String mid = owning_mod(p_paths[i]);
@@ -2636,6 +3004,10 @@ void VMLModLoader::rescan() {
 	load_registry("res://registry.json");
 	load_registry(registry_path());
 	load_registry("user://vml/registry.json");
+	// 0.4.0: tags and the parse-failure cache follow the fresh scan; rebuild
+	// tags BEFORE the preload so @condition terms see the new picture.
+	vortarismodloader::LoaderBackend::clear_failed_paths();
+	rebuild_tags();
 	database_.clear();
 	preload_database();
 	// Re-validate after a re-scan so the error/warning summary stays accurate.
@@ -2651,6 +3023,12 @@ void VMLModLoader::rescan() {
 			instantiate_mod_main(rec); // no-op for pure-data mods
 		}
 	}
+	// 0.4.0 lifecycle phases replay after every rescan (idempotent by contract).
+	run_mod_phase("vml_preload");
+	run_mod_phase("vml_register");
+	run_deferred_registrations();
+	run_mod_phase("vml_setup");
+	run_mod_phase("vml_ready");
 	if (hot_reloader_ != nullptr) {
 		hot_reloader_->rescan();
 	}
@@ -2765,6 +3143,14 @@ void VMLModLoader::finish_startup() {
 			instantiate_mod_main(*rec);
 		}
 	}
+	// 0.4.0 lifecycle phases: after every mod_main exists, run the optional
+	// entry points in load order; deferred registrations land between register
+	// and setup. vml_ready is the safe cross-mod query point.
+	run_mod_phase("vml_preload");
+	run_mod_phase("vml_register");
+	run_deferred_registrations();
+	run_mod_phase("vml_setup");
+	run_mod_phase("vml_ready");
 	log_debug("scan: startup finished");
 	maybe_show_error_dialogs();
 }
@@ -3012,7 +3398,7 @@ void VMLModLoader::_bind_methods() {
 			DEFVAL(0));
 	ClassDB::bind_method(D_METHOD("unregister", "id"), &VMLModLoader::unregister_id);
 	ClassDB::bind_method(D_METHOD("has_data", "id"), &VMLModLoader::has_data);
-	ClassDB::bind_method(D_METHOD("list_ids", "prefix"), &VMLModLoader::list_ids, DEFVAL(""));
+	ClassDB::bind_method(D_METHOD("list_ids", "prefix", "include_database"), &VMLModLoader::list_ids, DEFVAL(""), DEFVAL(false));
 	ClassDB::bind_method(D_METHOD("list_namespaces"), &VMLModLoader::list_namespaces);
 	ClassDB::bind_method(D_METHOD("list_ids_in_namespace", "ns"), &VMLModLoader::list_ids_in_namespace);
 	ClassDB::bind_method(D_METHOD("count_ids", "prefix"), &VMLModLoader::count_ids, DEFVAL(""));
@@ -3040,6 +3426,11 @@ void VMLModLoader::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_id_type", "id", "type"), &VMLModLoader::set_id_type);
 	ClassDB::bind_method(D_METHOD("get_id_type", "id"), &VMLModLoader::get_id_type);
 	ClassDB::bind_method(D_METHOD("list_ids_by_type", "type"), &VMLModLoader::list_ids_by_type);
+	ClassDB::bind_method(D_METHOD("tag_has", "tag", "id"), &VMLModLoader::tag_has);
+	ClassDB::bind_method(D_METHOD("tag_resolve", "tag"), &VMLModLoader::tag_resolve);
+	ClassDB::bind_method(D_METHOD("tags_of", "id"), &VMLModLoader::tags_of);
+	ClassDB::bind_method(D_METHOD("list_tags"), &VMLModLoader::list_tags);
+	ClassDB::bind_method(D_METHOD("defer_register", "ns", "callable"), &VMLModLoader::defer_register);
 	ClassDB::bind_method(D_METHOD("reserve", "id"), &VMLModLoader::reserve);
 	ClassDB::bind_method(D_METHOD("unreserve", "id"), &VMLModLoader::unreserve);
 	ClassDB::bind_method(D_METHOD("get_id_data_type", "id"), &VMLModLoader::get_id_data_type);

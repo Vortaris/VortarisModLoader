@@ -1890,4 +1890,104 @@ func _initialize() -> void:
 	if not VMLTestUtil.expect(not VML.has("mygame:m4.icon"), "M4 placeholder cleanup"):
 		failed = true
 
+	# --- 0.4.0: Tags / conditional loading / list_ids / pack exclusion -------
+	# Fixtures live in a throwaway MOD under user:// — res:// can become
+	# read-only once packs are mounted (F2/G7 above), so writing fixtures there
+	# would fail. Tag files live under <content>/<ns>/tags/**.json and are NEVER
+	# registered as content ids; they bake into a tag -> members index (merge in
+	# load order, replace:true resets, "#ns:tag" nests, required:false drops
+	# absent members).
+	var t40_root := "user://vml/t40_root"
+	_rmtree(t40_root)
+	DirAccess.make_dir_recursive_absolute(t40_root + "/t40/data/t40/tags/elements")
+	DirAccess.make_dir_recursive_absolute(t40_root + "/t40/data/t40/cond")
+	_t40_write(t40_root + "/t40/manifest.json", JSON.stringify({
+		"name": "T40 Fixture", "namespace": "t40", "version_number": "1.0.0",
+		"description": "0.4.0 regression fixture.", "extra": {"godot": {}},
+	}, "\t"))
+	_t40_write(t40_root + "/t40/data/t40/tags/elements/base.json",
+		'{"replace": false, "values": ["t40:units.archer"]}')
+	_t40_write(t40_root + "/t40/data/t40/tags/elements/fire.json",
+		'{"replace": false, "values": ["t40:units.knight", "#t40:elements.base", {"id": "t40:units.missing", "required": false}]}')
+	_t40_write(t40_root + "/t40/data/t40/cond/yes.json",
+		'@condition,mod_loaded:mymod\n{"v": 42}')
+	_t40_write(t40_root + "/t40/data/t40/cond/no.json",
+		'@condition,mod_loaded:nonexistent_mod_xyz\n{"v": 99}')
+	_t40_write(t40_root + "/t40/data/t40/cond/tag.json",
+		'@condition,tags_populated:t40:elements.fire\n{"v": 7}')
+	if not VMLTestUtil.expect(VML.add_mod_root(t40_root), "0.4.0 add t40 fixture root"):
+		failed = true
+	VML.rescan()
+	if not VMLTestUtil.expect(VML.get_mod_ids().has("t40"), "0.4.0 t40 fixture mod discovered"):
+		failed = true
+
+	if not VMLTestUtil.expect(VML.list_tags().has("t40:elements.fire"), "0.4.0 tag list contains fire"):
+		failed = true
+	if not VMLTestUtil.expect(VML.tag_has("t40:elements.fire", "t40:units.knight"), "0.4.0 fire has knight"):
+		failed = true
+	if not VMLTestUtil.expect(VML.tag_has("t40:elements.fire", "t40:units.archer"), "0.4.0 fire has archer via nested #base"):
+		failed = true
+	if not VMLTestUtil.expect(not VML.tag_has("t40:elements.fire", "t40:units.missing"), "0.4.0 optional missing member dropped"):
+		failed = true
+	if not VMLTestUtil.expect_eq(VML.tag_resolve("t40:elements.fire").size(), 2, "0.4.0 fire resolves to 2 members"):
+		failed = true
+	if not VMLTestUtil.expect(VML.tags_of("t40:units.archer").has("t40:elements.base"), "0.4.0 reverse lookup archer -> base"):
+		failed = true
+	# tags/ must not leak into the content registry.
+	if not VMLTestUtil.expect(not VML.has("t40:tags.elements.fire"), "0.4.0 tag file not registered as content id"):
+		failed = true
+
+	# Conditional data loading: @condition,<term> on the first line(s).
+	var t40_yes = VML.get_data("t40:cond.yes")
+	if not VMLTestUtil.expect(t40_yes is Dictionary and int(t40_yes.get("v", 0)) == 42, "0.4.0 condition met -> data loads"):
+		failed = true
+	if not VMLTestUtil.expect(VML.get_data("t40:cond.no") == null, "0.4.0 condition unmet -> data skipped"):
+		failed = true
+	if not VMLTestUtil.expect(VML.get_data("t40:cond.tag") is Dictionary, "0.4.0 tags_populated predicate loads data"):
+		failed = true
+
+	# list_ids(include_database=true) surfaces set_data-only ids.
+	VML.set_data("t40:mem.only", {"in": "memory"})
+	var t40_db: Dictionary = VML.list_ids("t40:", true)
+	var t40_mem: PackedStringArray = t40_db.get("t40", PackedStringArray())
+	if not VMLTestUtil.expect(t40_mem.has("mem.only"), "0.4.0 list_ids include_database shows memory-only id"):
+		failed = true
+	if not VMLTestUtil.expect(not VML.list_ids("t40:").get("t40", PackedStringArray()).has("mem.only"),
+			"0.4.0 list_ids default stays registry-only"):
+		failed = true
+
+	# Pack exclusion (restart-based unload escape hatch, #9).
+	VML.exclude_pack("user://vml/t40_debug.pck")
+	if not VMLTestUtil.expect(VML.get_excluded_packs().has("user://vml/t40_debug.pck"), "0.4.0 exclude_pack persisted"):
+		failed = true
+	VML.include_pack("user://vml/t40_debug.pck")
+	if not VMLTestUtil.expect(not VML.get_excluded_packs().has("user://vml/t40_debug.pck"), "0.4.0 include_pack removes it"):
+		failed = true
+
+	# defer_register drains during the registration phase of the next rescan.
+	var t40_ran := [false]
+	VML.defer_register("t40", func(): t40_ran[0] = true)
+	VML.rescan()
+	if not VMLTestUtil.expect(t40_ran[0], "0.4.0 defer_register callable ran on rescan"):
+		failed = true
+
+	# 0.4.0 fixture cleanup.
+	VML.remove_mod_root(t40_root)
+	_rmtree(t40_root)
+	VML.delete_data("t40:mem.only")
+	VML.rescan()
+	if not VMLTestUtil.expect(not VML.list_tags().has("t40:elements.fire"), "0.4.0 tag cleanup"):
+		failed = true
+
 	quit(1 if failed else 0)
+
+
+# Write a text fixture file for the 0.4.0 section (user:// is always writable,
+# even while packs are mounted — res:// is not).
+func _t40_write(path: String, content: String) -> void:
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f != null:
+		f.store_string(content)
+		f.close()
+	else:
+		push_error("0.4.0 fixture write failed: " + path)

@@ -95,6 +95,12 @@ void collect(const godot::String &p_abs_dir, const godot::String &p_id_rel_path,
 		}
 		const godot::String abs = p_abs_dir + godot::String("/") + e;
 		if (dir->current_is_dir()) {
+			// 0.4.0 (tags): a `tags/` directory directly under a namespace root
+			// holds tag DEFINITIONS (see VMLModLoader::rebuild_tags), never
+			// content ids — skip it here so `data/ns/tags/...` is not registered.
+			if (p_id_rel_path.is_empty() && e == "tags") {
+				continue;
+			}
 			const godot::String child_id_rel = p_id_rel_path.is_empty() ? e : p_id_rel_path + godot::String("/") + e;
 			const godot::String child_root_rel =
 					p_root_rel_path.is_empty() ? e : p_root_rel_path + godot::String("/") + e;

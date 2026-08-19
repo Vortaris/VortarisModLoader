@@ -1,6 +1,8 @@
 #ifndef VML_MOD_LOADER_H
 #define VML_MOD_LOADER_H
 
+#include <map>
+#include <set>
 #include <unordered_map>
 #include <vector>
 
@@ -57,7 +59,7 @@ public:
 	/// provider at priority `p_priority` (mod providers > 0 override it).
 	bool register_id(const String &p_id, const Variant &p_value, int p_priority = 0);
 	bool unregister_id(const String &p_id);
-	Dictionary list_ids(const String &p_prefix = "") const;
+	Dictionary list_ids(const String &p_prefix = "", bool p_include_database = false) const;
 	PackedStringArray list_namespaces() const;
 	/// Every full id in a namespace, sorted ("ns:path").
 	PackedStringArray list_ids_in_namespace(const String &p_ns) const;
@@ -118,6 +120,25 @@ public:
 	String get_id_type(const String &p_id) const;
 	/// Every id tagged with `type` (dotted ids, sorted).
 	PackedStringArray list_ids_by_type(const String &p_type) const;
+
+	// ---- Tags (0.4.0, Minecraft-style composition) ----
+	/// A tag groups content ids under a name so mods can extend a SET instead of
+	/// patching individual ids. Tag files live in `<content>/<ns>/tags/**.json`
+	/// (base layer or any mod, `{"replace": bool, "values": [...]}`; values are
+	/// ids, {"id","required"} dicts, or "#ns:tag" nested refs). Members merge in
+	/// load order (priority asc); `replace:true` resets first.
+	bool tag_has(const String &p_tag, const String &p_id) const;
+	/// Flattened member ids of a tag (nested tags resolved, deduplicated).
+	PackedStringArray tag_resolve(const String &p_tag) const;
+	/// Reverse lookup: every tag that contains the given member id.
+	PackedStringArray tags_of(const String &p_id) const;
+	PackedStringArray list_tags() const;
+
+	/// Deferred registration (0.4.0): queues a callable to run once during the
+	/// registration phase of the NEXT finish_startup()/rescan() — after every
+	/// mod_main is instantiated, before vml_setup. Lets libs register ids that
+	/// depend on other mods being present without caring about load order.
+	void defer_register(const String &p_ns, const Callable &p_callable);
 	/// Reserve an id (declares it without a provider; has() reports true).
 	bool reserve(const String &p_id);
 	bool unreserve(const String &p_id);
@@ -336,6 +357,23 @@ private:
 		PackedStringArray arg_types;
 	};
 
+	// Tags (0.4.0) — raw parsed definition before baking.
+	struct TagValueEntry {
+		String ref; // member id, or tag id when is_tag
+		bool is_tag = false; // "#ns:tag" nested reference
+		bool required = true; // required=false: silently drop when missing
+	};
+	struct TagDef {
+		bool replace = false;
+		std::vector<TagValueEntry> values;
+	};
+	struct RawTagFile {
+		int priority = 0;
+		int seq = 0;
+		String tag_id; // canonical "ns:path"
+		TagDef def;
+	};
+
 	void scan_base_layer();
 	void scan_mods();
 	/// Mount every *.pck found under the configured mod roots (read-only packs,
@@ -413,6 +451,22 @@ private:
 	ModRecord *find_mod(const String &p_mod_id);
 	const ModRecord *find_mod(const String &p_mod_id) const;
 	void scan_mod_content(ModRecord &p_rec);
+	// Tags (0.4.0).
+	void rebuild_tags();
+	void collect_tags_from_root(const String &p_root, int p_pri, int &r_seq,
+			std::vector<RawTagFile> &r_out);
+	void walk_tag_dir(const String &p_abs, const String &p_rel, const String &p_ns,
+			int p_pri, int &r_seq, std::vector<RawTagFile> &r_out);
+	void resolve_tag_values(const String &p_tag, const std::vector<TagValueEntry> &p_values,
+			const std::map<String, std::vector<TagValueEntry>> &p_merged,
+			std::set<String> &r_visited, std::vector<String> &r_out) const;
+	// Conditional data loading (0.4.0): evaluates one @condition predicate term.
+	bool evaluate_condition_term(const String &p_term);
+	// Lifecycle phases (0.4.0): calls `p_method` on every enabled mod_main that
+	// implements it, in load order (vml_preload / vml_register / vml_setup /
+	// vml_ready).
+	void run_mod_phase(const String &p_method);
+	void run_deferred_registrations();
 	void instantiate_mod_main(ModRecord &p_rec);
 	void destroy_mod_main(ModRecord &p_rec);
 	bool activate_mod(const String &p_mod_id);
@@ -461,6 +515,11 @@ private:
 	String legacy_migration_notice_; // one-time user://vml/mods migration hint (F5)
 	bool legacy_migration_notified_ = false; // shown this session (or root re-added)
 	mutable bool unpacked_migration_notified_ = false; // one-time unpacked_dir deprecation notice (#11)
+	// Tags (0.4.0): baked tag -> member ids and the reverse member -> tags index.
+	std::map<String, std::vector<String>> tag_members_;
+	std::map<String, std::vector<String>> tag_reverse_;
+	// Deferred registrations (0.4.0), drained during the registration phase.
+	std::vector<std::pair<String, Callable>> deferred_regs_;
 
 	static VMLModLoader *singleton;
 };

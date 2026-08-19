@@ -1,5 +1,8 @@
 #pragma once
 
+#include <functional>
+#include <set>
+
 #include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 #include <godot_cpp/variant/string.hpp>
@@ -25,8 +28,22 @@ public:
 	static void set_quiet_errors(bool p_quiet) { quiet_errors_ = p_quiet; }
 	static bool is_quiet_errors() { return quiet_errors_; }
 
+	/// 0.4.0 (conditional data loading): `@condition,<term>` directive lines at
+	/// the top of a .json/.csv data file are evaluated through this callback
+	/// before parsing; a failing condition skips the file entirely. Set by the
+	/// VML singleton. When unset, conditions are treated as satisfied.
+	static void set_condition_evaluator(std::function<bool(const godot::String &)> p_fn) {
+		condition_evaluator_ = std::move(p_fn);
+	}
+	/// 0.4.0 (audit): paths whose data failed to parse are cached and short-
+	/// circuited on later loads (avoids re-parsing + error spam per access).
+	/// Cleared on rescan / reload_resources.
+	static void clear_failed_paths() { failed_paths_.clear(); }
+
 private:
 	static bool quiet_errors_;
+	static std::function<bool(const godot::String &)> condition_evaluator_;
+	static std::set<godot::String> failed_paths_;
 };
 
 } // namespace vortarismodloader

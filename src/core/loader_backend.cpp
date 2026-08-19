@@ -14,6 +14,8 @@
 namespace vortarismodloader {
 
 bool LoaderBackend::quiet_errors_ = false;
+std::function<bool(const godot::String &)> LoaderBackend::condition_evaluator_ = nullptr;
+std::set<godot::String> LoaderBackend::failed_paths_;
 
 namespace {
 
@@ -74,13 +76,69 @@ godot::Array parse_csv(const godot::String &p_text) {
 } // namespace
 
 godot::Variant LoaderBackend::load_data(const godot::String &p_path) {
+	// Audit fix: a path that already failed to parse is short-circuited, so a
+	// broken data file is reported once instead of re-parsed (and re-errored)
+	// on every get_data / preload pass.
+	if (failed_paths_.count(p_path) > 0) {
+		return godot::Variant();
+	}
 	const godot::String ext = extension_of(p_path);
 	godot::Ref<godot::FileAccess> f = godot::FileAccess::open(p_path, godot::FileAccess::READ);
 	if (f.is_null()) {
 		report_load_failure(godot::String("cannot open data file: ") + p_path);
 		return godot::Variant();
 	}
-	const godot::String text = f->get_as_text();
+	godot::String text = f->get_as_text();
+
+	// 0.4.0 (conditional data loading): leading `@directive` lines configure how
+	// the file loads without breaking JSON/CSV parsers. Recognized today:
+	//   @condition,<term>   — skip this file entirely unless <term> holds.
+	// Directives must be the FIRST lines of the file (blank lines allowed among
+	// them); the first non-directive, non-blank line starts the payload. Terms
+	// are evaluated by the VML singleton (mod_loaded:, tags_populated:, ...).
+	if (text.begins_with("@")) {
+		const godot::PackedStringArray lines = text.split("\n");
+		int64_t start = 0;
+		bool skip_file = false;
+		for (int64_t i = 0; i < lines.size(); i++) {
+			const godot::String line = lines[i].strip_edges();
+			if (line.is_empty()) {
+				start = i + 1;
+				continue; // blank lines between directives are fine
+			}
+			if (!line.begins_with("@")) {
+				start = i;
+				break; // payload begins
+			}
+			start = i + 1;
+			const int comma = line.find(",");
+			const godot::String name = (comma >= 0 ? line.substr(0, comma) : line).strip_edges();
+			const godot::String arg = comma >= 0 ? line.substr(comma + 1).strip_edges() : godot::String();
+			if (name == "@condition") {
+				const bool ok = condition_evaluator_ ? condition_evaluator_(arg) : true;
+				if (!ok) {
+					skip_file = true;
+					log_debug(godot::String("loader: condition '") + arg +
+							godot::String("' not met, skipping ") + p_path);
+					break;
+				}
+			}
+			// Unknown directives are ignored (forward compatible).
+		}
+		if (skip_file) {
+			return godot::Variant();
+		}
+		// Rebuild the payload without the directive header.
+		godot::String body;
+		for (int64_t i = start; i < lines.size(); i++) {
+			if (i > start) {
+				body += "\n";
+			}
+			body += lines[i];
+		}
+		text = body;
+	}
+
 	if (ext == "json") {
 		// Use the instance parse() so malformed files don't trigger the engine's own
 		// "Parse JSON failed" ERROR print — we report failures ourselves (silencable
@@ -91,6 +149,7 @@ godot::Variant LoaderBackend::load_data(const godot::String &p_path) {
 		const godot::Variant parsed = parser->get_data();
 		if (jerr != godot::OK) {
 			report_load_failure(godot::String("invalid JSON in ") + p_path);
+			failed_paths_.insert(p_path);
 		}
 		log_debug(godot::String("loader: parse data '") + p_path + godot::String("' -> ") +
 				(parsed.get_type() == godot::Variant::DICTIONARY ? godot::String("Dictionary") :
