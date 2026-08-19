@@ -1,0 +1,2 @@
+id,name,schema
+fixturerow1,Fixture,"[{""name"": ""x"", ""type"": ""F32""}, {""name"": ""y"", ""type"": ""F32""}]"

@@ -1971,6 +1971,21 @@ func _initialize() -> void:
 	if not VMLTestUtil.expect(t40_ran[0], "0.4.0 defer_register callable ran on rescan"):
 		failed = true
 
+	# --- 0.4.1: RFC-4180 CSV — commas inside quoted fields survive ---
+	# Fixture is committed (demo/data/game/rfc4180_fixture.csv) so the test is
+	# deterministic (avoids the write/delete/rescan race on watched dirs). Its
+	# `schema` column holds JSON with inner commas — the naive split(",") used to
+	# truncate it at the first inner comma.
+	var rfc_data = VML.get_data("game:rfc4180_fixture")
+	if not VMLTestUtil.expect(rfc_data is Array and rfc_data.size() == 1, "0.4.1 RFC4180 CSV loads 1 data row"):
+		failed = true
+	else:
+		var crow: Dictionary = rfc_data[0]
+		var cval = crow.get("schema")
+		if not VMLTestUtil.expect(cval is String and cval.find("type") >= 0 and cval.find("y") >= 0,
+				"0.4.1 quoted schema field survives inner commas"):
+			failed = true
+
 	# 0.4.0 fixture cleanup.
 	VML.remove_mod_root(t40_root)
 	_rmtree(t40_root)

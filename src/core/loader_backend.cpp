@@ -38,25 +38,78 @@ godot::String extension_of(const godot::String &p_path) {
 	return p_path.substr(dot + 1).to_lower();
 }
 
-// Minimal CSV -> Array[Dictionary] using the first row as headers. Good enough
-// for data mods; the full RFC-4180 parser lives in VortarisCSV.
+// CSV -> Array[Dictionary] using the first row as headers.
+// RFC-4180 aware: quoted fields may contain commas, newlines and escaped
+// quotes ("" -> "). This matters for data-mod tables whose cells hold JSON
+// (e.g. an ECS component `schema` column) — the naive split(",") used to
+// truncate such cells at the first inner comma. A full-featured parser still
+// lives in VortarisCSV; this one is deliberately small but correct.
 godot::Array parse_csv(const godot::String &p_text) {
 	godot::Array out;
-	const godot::PackedStringArray lines = p_text.split("\n");
-	if (lines.size() < 2) {
+
+	// Parse into rows of fields (character-level, quote-aware).
+	std::vector<godot::PackedStringArray> rows;
+	godot::PackedStringArray cur_row;
+	godot::String field;
+	bool in_quotes = false;
+	int64_t i = 0;
+	const int64_t len = p_text.length();
+	// Strip a leading UTF-8 BOM (decoded to U+FEFF by get_as_text).
+	if (len > 0 && p_text[0] == 0xFEFF) {
+		i = 1;
+	}
+	for (; i < len; i++) {
+		const char32_t c = p_text[i];
+		if (in_quotes) {
+			if (c == U'"') {
+				if (i + 1 < len && p_text[i + 1] == U'"') {
+					field += U'"'; // escaped quote
+					i++;
+				} else {
+					in_quotes = false;
+				}
+			} else {
+				field += c; // commas / newlines inside quotes are literal
+			}
+		} else {
+			if (c == U'"') {
+				in_quotes = true;
+			} else if (c == U',') {
+				cur_row.push_back(field);
+				field = godot::String();
+			} else if (c == U'\n' || c == U'\r') {
+				if (c == U'\r' && i + 1 < len && p_text[i + 1] == U'\n') {
+					i++; // consume CRLF as one newline
+				}
+				cur_row.push_back(field);
+				field = godot::String();
+				rows.push_back(cur_row);
+				cur_row = godot::PackedStringArray();
+			} else {
+				field += c;
+			}
+		}
+	}
+	if (!field.is_empty() || cur_row.size() > 0) {
+		cur_row.push_back(field);
+		rows.push_back(cur_row);
+	}
+
+	if (rows.size() < 2) {
 		return out;
 	}
+	// First row = headers.
 	godot::PackedStringArray headers;
-	for (const godot::String &h : lines[0].split(",")) {
+	for (const godot::String &h : rows[0]) {
 		headers.push_back(h.strip_edges());
 	}
-	for (int i = 1; i < lines.size(); i++) {
-		const godot::String line = lines[i].strip_edges();
-		if (line.is_empty()) {
-			continue;
+	// Data rows.
+	for (size_t r = 1; r < rows.size(); r++) {
+		const godot::PackedStringArray &cells = rows[r];
+		if (cells.size() == 1 && cells[0].strip_edges().is_empty()) {
+			continue; // blank line
 		}
 		godot::Dictionary row;
-		const godot::PackedStringArray cells = line.split(",");
 		for (int c = 0; c < headers.size(); c++) {
 			godot::String val = c < cells.size() ? cells[c].strip_edges() : godot::String();
 			// Best-effort numeric conversion so data mods can use plain numbers.
