@@ -1108,28 +1108,25 @@ static func _add_dir_to_pck(packer: PCKPacker, dir: String, pck_prefix: String) 
 	return err
 
 
-## Scans every .gd file under `root`, collects the mod's `class_name` declarations
-## and writes them as a global-script-class cache entry at
-## `res://.godot/global_script_class_cache.cfg` inside the pack. Returns OK when
-## the cache was written OR when the mod declares no class_names (nothing to add —
-## an empty cache would replace the game's own baked cache with nothing).
+## Builds the global-script-class cache entry packed at
+## `res://.godot/global_script_class_cache.cfg`: the game's BASE classes plus
+## THIS mod's `class_name`s (other mods' classes are dropped — they are not part
+## of this pack). Exported games re-read this cache file when the pack is
+## mounted and REPLACE the whole class list, so the pack's cache must carry the
+## base classes too or every game class_name stops resolving after mount.
+## Returns OK when the cache was written OR when there is nothing to write.
 static func _write_class_cache_for_pck(packer: PCKPacker, mod_id: String, root: String) -> Error:
 	var classes: Array = []
-	var norm_root := root.replace("\\", "/")
-	for gd_path in _collect_gd_files(root):
-		var cn := _class_name_of(gd_path)
-		if cn.is_empty():
+	var mod_prefix := "res://mods/%s/" % mod_id
+	for c in ProjectSettings.get_global_class_list():
+		if not (c is Dictionary):
 			continue
-		var rel := gd_path.replace("\\", "/").trim_prefix(norm_root).trim_prefix("/")
-		classes.append({
-			"class": StringName(cn),
-			"base": StringName(_base_of(gd_path)),
-			"language": StringName("GDScript"),
-			"path": "res://mods/%s/%s" % [mod_id, rel],
-			"icon": "",
-			"is_abstract": false,
-			"is_tool": false,
-		})
+		var path := String((c as Dictionary).get("path", ""))
+		if path.is_empty():
+			continue
+		# 保留基础类(不在 res://mods/ 下)与本 mod 的类;剔除其它 mod 的类。
+		if not path.begins_with("res://mods/") or path.begins_with(mod_prefix):
+			classes.append(c)
 	if classes.is_empty():
 		return OK
 	_cleanup_class_cache_tmp()
@@ -1144,49 +1141,3 @@ static func _write_class_cache_for_pck(packer: PCKPacker, mod_id: String, root: 
 static func _cleanup_class_cache_tmp() -> void:
 	if FileAccess.file_exists(_CLASS_CACHE_TMP):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(_CLASS_CACHE_TMP))
-
-
-## Recursively collects absolute/res:// paths of every .gd file under `dir`.
-static func _collect_gd_files(dir: String) -> PackedStringArray:
-	var out := PackedStringArray()
-	var d := DirAccess.open(dir)
-	if d == null:
-		return out
-	d.list_dir_begin()
-	var e := d.get_next()
-	while e != "":
-		if not e.begins_with("."):
-			var full := dir + "/" + e
-			if d.current_is_dir():
-				out.append_array(_collect_gd_files(full))
-			elif e.ends_with(".gd"):
-				out.append(full)
-		e = d.get_next()
-	d.list_dir_end()
-	return out
-
-
-## First `class_name` identifier in a script, or "".
-static func _class_name_of(path: String) -> String:
-	if not FileAccess.file_exists(path):
-		return ""
-	var text := FileAccess.get_file_as_string(path)
-	var re := RegEx.new()
-	re.compile("(?m)^\\s*class_name\\s+([A-Za-z_][A-Za-z0-9_]*)")
-	var m := re.search(text)
-	if m != null and m.get_group_count() >= 1:
-		return m.get_string(1)
-	return ""
-
-
-## First `extends` identifier in a script, or "" (extends-by-path yields "").
-static func _base_of(path: String) -> String:
-	if not FileAccess.file_exists(path):
-		return ""
-	var text := FileAccess.get_file_as_string(path)
-	var re := RegEx.new()
-	re.compile("(?m)^\\s*extends\\s+([A-Za-z_][A-Za-z0-9_]*)")
-	var m := re.search(text)
-	if m != null and m.get_group_count() >= 1:
-		return m.get_string(1)
-	return ""

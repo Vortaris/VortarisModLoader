@@ -4,17 +4,18 @@
 
 Export-time fix.
 
-### Mod `class_name` cache packed into mod pcks (#12)
+### Mod class cache packed into mod pcks (#12)
 
-- `build_mod_pck` now scans a mod's scripts for `class_name` declarations and
-  packs a `res://.godot/global_script_class_cache.cfg` alongside the content.
-  Exported games that load the mod `.pck` at runtime re-read this cache on
-  mount, so mod classes become resolvable by core scripts loaded afterwards.
-  Without it, `class_name` from a runtime-loaded mod was absent from the
+- `build_mod_pck` now packs a `res://.godot/global_script_class_cache.cfg`
+  holding the game's **base classes** plus the mod's own `class_name`s (other
+  mods' classes are dropped — they are not part of this pack). Exported games
+  re-read this cache file when the pack is mounted and **replace the whole
+  global class list**, so the pack's cache must carry the base classes too —
+  otherwise every game class_name stops resolving after the mod mounts.
+- Without this, a `class_name` from a runtime-loaded mod was absent from the
   game's baked class cache and any core script referencing it failed to
-  compile (`Identifier "... " not declared`).
-- No class_names in the mod → no cache file is written (an empty cache would
-  replace the game's own baked cache with nothing).
+  compile (`Identifier "... " not declared` → `Compilation failed`).
+- No classes at all (fresh project) → no cache file is written.
 
 ## 0.4.1
 
