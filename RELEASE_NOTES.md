@@ -1,17 +1,8 @@
 # Release Notes
 
-## 0.4.1
+## 0.4.2
 
-Export-time fixes.
-
-### RFC-4180-aware VML CSV loader
-
-- `loader_backend`'s CSV→Array[Dictionary] parser is rewritten as a
-  character-level RFC-4180 parser: quoted fields may contain commas, newlines
-  and escaped quotes (`""` → `"`); a leading UTF-8 BOM is stripped. Previously
-  the naive `split(",")` truncated any quoted cell holding JSON (e.g. an ECS
-  component `schema` column). Numeric best-effort conversion is preserved.
-  Adds a committed fixture + regression assertion (regression suite 404).
+Export-time fix.
 
 ### Mod `class_name` cache packed into mod pcks (#12)
 
@@ -24,6 +15,17 @@ Export-time fixes.
   compile (`Identifier "... " not declared`).
 - No class_names in the mod → no cache file is written (an empty cache would
   replace the game's own baked cache with nothing).
+
+## 0.4.1
+
+### RFC-4180-aware VML CSV loader
+
+- `loader_backend`'s CSV→Array[Dictionary] parser is rewritten as a
+  character-level RFC-4180 parser: quoted fields may contain commas, newlines
+  and escaped quotes (`""` → `"`); a leading UTF-8 BOM is stripped. Previously
+  the naive `split(",")` truncated any quoted cell holding JSON (e.g. an ECS
+  component `schema` column). Numeric best-effort conversion is preserved.
+  Adds a committed fixture + regression assertion (regression suite 404).
 
 ## 0.4.0
 
